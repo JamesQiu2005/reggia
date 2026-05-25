@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Read(/Users/xiaojinqiu/Documents/Summer 2026/Reggia/backend/chat_workspace/**)",
-      "Bash(curl *localhost*)",
+      "Read(/workspace/**)",
+      "Bash(curl *host.docker.internal*)",
       "WebSearch",
       "WebFetch"
     ]

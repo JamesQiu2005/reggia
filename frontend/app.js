@@ -470,6 +470,21 @@ function attachItemHandlers() {
     });
   });
 
+  reggiaItems.querySelectorAll(".sensitivity-pill[data-id]").forEach(pill => {
+    pill.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = pill.dataset.id;
+      const sens = pill.dataset.sensitivity;
+      if (!id || !sens) return;
+      await fetch(`/reggia/items/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sensitivity: sens }),
+      });
+      loadItems(currentFilter);
+    });
+  });
+
   reggiaItems.querySelectorAll(".item-due-input[data-id]").forEach(inp => {
     inp.addEventListener("change", async () => {
       const id = inp.dataset.id;
@@ -514,17 +529,22 @@ function renderCollapsed(item) {
         ${deadlineHtml}
       </div>
       <div class="item-name">${escapeHtml(item.name)}</div>
-      <div class="item-meta">${item.domain || ""} · ${item.status || ""}</div>
+      <div class="item-meta">${item.domain || ""} · ${item.status || ""}${item.sensitivity ? ` · ${item.sensitivity}` : ""}</div>
     </div>`;
 }
 
 function renderExpanded(item) {
   const prioClass = (item.priority || "").toLowerCase();
   const prio = item.priority || "P2";
+  const sens = item.sensitivity || "";
 
   const prioPill = (val, label) => `
     <span class="priority-pill ${val.toLowerCase()} ${prio === val ? 'selected' : ''}"
           data-id="${item.id}" data-priority="${val}">${label}</span>`;
+
+  const sensLabel = (val, label) => `
+    <span class="sensitivity-pill ${val} ${sens === val ? 'sel' : ''}"
+          data-id="${item.id}" data-sensitivity="${val}">${label}</span>`;
 
   return `
     <div class="item-expanded ${prioClass}" data-id="${item.id}">
@@ -548,6 +568,23 @@ function renderExpanded(item) {
         </div>
       </div>
 
+      <div class="item-field-row">
+        <div class="item-field-col">
+          <div class="item-field-label">Status</div>
+          <select class="item-select" data-id="${item.id}" data-field="status">
+            ${["active","pending","completed","dropped"].map(s =>
+              `<option value="${s}" ${item.status === s ? "selected" : ""}>${s}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <div class="item-field-col">
+          <div class="item-field-label">Sensitivity</div>
+          <div class="sensitivity-pills">
+            ${sensLabel("agent-readable","agent")}${sensLabel("contextual","ctx")}${sensLabel("private","priv")}
+          </div>
+        </div>
+      </div>
+
       <div class="item-field-label">Due (optional)</div>
       <input type="date" class="item-due-input" value="${item.due_date || ""}"
              data-id="${item.id}" data-field="due_date" />
@@ -559,7 +596,7 @@ function renderExpanded(item) {
         <span class="btn-ask-reggia" data-name="${escapeHtml(item.name)}">Ask Reggia <i class="ti ti-arrow-up-right"></i></span>
         <div class="item-actions-right">
           <span class="item-actions-hint">Esc to collapse</span>
-          <i class="ti ti-trash btn-trash" data-id="${item.id}"></i>
+          <span class="btn-trash" data-id="${item.id}" title="Delete item"><i class="ti ti-trash"></i></span>
           <span class="btn-collapse">Collapse</span>
         </div>
       </div>
@@ -594,6 +631,25 @@ function renderAddForm() {
         </div>
       </div>
 
+      <div class="item-field-row">
+        <div class="item-field-col">
+          <div class="item-field-label">Status</div>
+          <select class="item-select" id="add-status">
+            <option value="active" selected>active</option>
+            <option value="pending">pending</option>
+            <option value="completed">completed</option>
+          </select>
+        </div>
+        <div class="item-field-col">
+          <div class="item-field-label">Sensitivity</div>
+          <div class="sensitivity-pills" id="add-sensitivity-pills">
+            <span class="sensitivity-pill agent-readable" data-s="agent-readable">agent</span>
+            <span class="sensitivity-pill contextual" data-s="contextual">ctx</span>
+            <span class="sensitivity-pill private" data-s="private">priv</span>
+          </div>
+        </div>
+      </div>
+
       <div class="item-field-label">Due (optional)</div>
       <input type="date" class="item-due-input" id="add-due" />
 
@@ -616,6 +672,7 @@ function renderAddForm() {
   reggiaItems.innerHTML = formHtml + dimmedHtml;
 
   let addPriority = "P2";
+  let addSensitivity = "";
   document.querySelectorAll("#add-priority-pills .priority-pill").forEach(pill => {
     pill.addEventListener("click", () => {
       document.querySelectorAll("#add-priority-pills .priority-pill").forEach(p => p.classList.remove("selected"));
@@ -624,10 +681,18 @@ function renderAddForm() {
     });
   });
 
+  document.querySelectorAll("#add-sensitivity-pills .sensitivity-pill").forEach(pill => {
+    pill.addEventListener("click", () => {
+      document.querySelectorAll("#add-sensitivity-pills .sensitivity-pill").forEach(p => p.classList.remove("sel"));
+      pill.classList.add("sel");
+      addSensitivity = pill.dataset.s;
+    });
+  });
+
   const nameInput = document.getElementById("add-name");
   nameInput.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { adding = false; render(); }
-    if (e.key === "Enter" && !e.isComposing) saveAddForm(() => addPriority);
+    if (e.key === "Enter" && !e.isComposing) saveAddForm(() => addPriority, () => addSensitivity);
   });
   nameInput.focus();
 
@@ -636,7 +701,7 @@ function renderAddForm() {
     render();
   });
 
-  document.getElementById("btn-save-add").addEventListener("click", () => saveAddForm(() => addPriority));
+  document.getElementById("btn-save-add").addEventListener("click", () => saveAddForm(() => addPriority, () => addSensitivity));
 
   const escHandler = (e) => {
     if (e.key === "Escape" && adding) {
@@ -648,19 +713,21 @@ function renderAddForm() {
   document.addEventListener("keydown", escHandler);
 }
 
-async function saveAddForm(getPriority) {
+async function saveAddForm(getPriority, getSensitivity) {
   const name = document.getElementById("add-name")?.value.trim();
   if (!name) return;
   const domain = document.getElementById("add-domain")?.value || undefined;
+  const status = document.getElementById("add-status")?.value || undefined;
   const due = document.getElementById("add-due")?.value || undefined;
   const notes = document.getElementById("add-notes")?.textContent.trim() || undefined;
   const priority = getPriority();
+  const sensitivity = getSensitivity() || undefined;
 
   try {
     await fetch("/reggia/items", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, domain, priority, due_date: due, notes }),
+      body: JSON.stringify({ name, domain, priority, status, due_date: due, notes, sensitivity }),
     });
   } catch (e) {
     // silent — list reload below will reflect server state

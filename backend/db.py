@@ -1,8 +1,12 @@
 import sqlite3
 import time
+import uuid
+from datetime import date
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "reggia.db"
+DB_DIR = Path(__file__).resolve().parent / "databases"
+DB_PATH = DB_DIR / "reggia_session.db"
+ITEMS_DB_PATH = DB_DIR / "reggia_items.db"
 
 
 def get_conn() -> sqlite3.Connection:
@@ -11,6 +15,14 @@ def get_conn() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def get_items_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(ITEMS_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 
@@ -42,6 +54,26 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+
+    items_conn = get_items_conn()
+    items_conn.executescript("""
+        CREATE TABLE IF NOT EXISTS items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            domain TEXT,
+            priority TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            sensitivity TEXT,
+            notes TEXT NOT NULL DEFAULT '',
+            due_date TEXT,
+            created_at TEXT NOT NULL,
+            archived INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_items_status
+            ON items(status, archived);
+    """)
+    items_conn.commit()
+    items_conn.close()
 
 
 def create_session(session_id: str) -> None:
@@ -166,3 +198,123 @@ def get_cache_stats(days: int = 7) -> dict:
         "hit_rate": round(row["hit"] / total, 4) if total > 0 else 0,
         "period_days": days,
     }
+
+
+# ---------------------------------------------------------------------------
+# Items CRUD (local SQLite)
+# ---------------------------------------------------------------------------
+
+def _item_from_row(row: sqlite3.Row, today: date) -> dict:
+    due_date = row["due_date"]
+    days_until_due = None
+    if due_date:
+        days_until_due = (date.fromisoformat(due_date) - today).days
+
+    created_date = date.fromisoformat(row["created_at"][:10])
+    days_since_created = (today - created_date).days
+
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "domain": row["domain"],
+        "priority": row["priority"],
+        "status": row["status"],
+        "sensitivity": row["sensitivity"],
+        "notes": row["notes"],
+        "due_date": due_date,
+        "days_until_due": days_until_due,
+        "days_since_created": days_since_created,
+        "url": "",
+    }
+
+
+def list_items(status: str = None, domain: str = None, today_override: date = None) -> list[dict]:
+    today = today_override or date.today()
+    conn = get_items_conn()
+    query = "SELECT * FROM items WHERE archived = 0"
+    params = []
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    if domain:
+        query += " AND domain = ?"
+        params.append(domain)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    items = [_item_from_row(r, today) for r in rows]
+    items.sort(key=lambda x: (
+        x["days_until_due"] is None,
+        x["days_until_due"] if x["days_until_due"] is not None else 999,
+    ))
+    return items
+
+
+def create_item(data: dict) -> dict:
+    today = date.today()
+    conn = get_items_conn()
+    item_id = uuid.uuid4().hex
+    now_iso = today.isoformat()
+    conn.execute(
+        """INSERT INTO items (id, name, domain, priority, status, sensitivity, notes, due_date, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            item_id,
+            data.get("name", ""),
+            data.get("domain"),
+            data.get("priority"),
+            data.get("status", "active"),
+            data.get("sensitivity"),
+            data.get("notes", ""),
+            data.get("due_date"),
+            now_iso,
+        ),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return _item_from_row(row, today)
+
+
+def update_item(item_id: str, data: dict) -> dict | None:
+    today = date.today()
+    conn = get_items_conn()
+    row = conn.execute("SELECT * FROM items WHERE id = ? AND archived = 0", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    allowed = ["name", "domain", "priority", "status", "sensitivity", "notes", "due_date"]
+    updates = {}
+    params = []
+    for field in allowed:
+        if field in data:
+            updates[field] = data[field]
+    if not updates:
+        conn.close()
+        return _item_from_row(row, today)
+
+    set_clause = ", ".join(f"{f} = ?" for f in updates)
+    params = list(updates.values()) + [item_id]
+    conn.execute(f"UPDATE items SET {set_clause} WHERE id = ?", params)
+    conn.commit()
+    row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return _item_from_row(row, today)
+
+
+def delete_item(item_id: str, hard: bool = False) -> dict | None:
+    conn = get_items_conn()
+    row = conn.execute("SELECT * FROM items WHERE id = ? AND archived = 0", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+    if hard:
+        conn.execute("UPDATE items SET archived = 1 WHERE id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+        return {"id": item_id, "deleted": True}
+    else:
+        conn.execute("UPDATE items SET status = 'dropped' WHERE id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+        return {"id": item_id, "status": "dropped"}

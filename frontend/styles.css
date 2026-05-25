@@ -963,6 +963,37 @@ html, body {
 .priority-pill.selected.p1 { background: var(--color-orange-bg); color: var(--color-orange-text); border-color: var(--color-orange-border); font-weight: 500; }
 .priority-pill.selected.p2, .priority-pill.selected.p3 { color: var(--color-text-primary); font-weight: 500; }
 
+/* Sensitivity pills */
+.sensitivity-pills {
+  display: flex;
+  gap: 3px;
+}
+
+.sensitivity-pill {
+  flex: 1;
+  text-align: center;
+  font-size: 10px;
+  padding: 4px 0;
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-secondary);
+  user-select: none;
+  transition: all 0.1s;
+}
+
+.sensitivity-pill:hover {
+  border-color: var(--color-border-secondary);
+}
+
+.sensitivity-pill.sel.agent-readable,
+.sensitivity-pill.sel.agent-readable { background: var(--color-blue-bg); color: var(--color-blue-text); border-color: var(--color-text-info); font-weight: 500; }
+
+.sensitivity-pill.sel.contextual { background: var(--color-orange-bg); color: var(--color-orange-text); border-color: var(--color-orange-border); font-weight: 500; }
+
+.sensitivity-pill.sel.private { background: var(--color-red-bg); color: var(--color-red-text); border-color: var(--color-red-border); font-weight: 500; }
+
 .item-select {
   width: 100%;
   font-size: 11px;
@@ -1045,9 +1076,21 @@ html, body {
 }
 
 .btn-trash {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
   color: var(--color-text-tertiary);
   cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.btn-trash:hover {
+  background: var(--color-red-bg);
+  color: var(--color-red-border);
 }
 
 .btn-collapse {

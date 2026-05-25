@@ -100,13 +100,18 @@ async def session_chat(session_id: str, payload: dict):
         args.insert(4, "--resume")
         args.insert(5, sessions_map[session_id])
 
-    proc = await asyncio.create_subprocess_exec(
-        *args,
+    if config.CC_MODE == "docker":
+        args = ["docker", "exec", "-i", "reggia-cc"] + args
+
+    kwargs = dict(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(config.CHAT_WORKSPACE),
     )
+    if config.CC_MODE != "docker":
+        kwargs["cwd"] = str(config.CHAT_WORKSPACE)
+
+    proc = await asyncio.create_subprocess_exec(*args, **kwargs)
     if proc.stdin:
         proc.stdin.close()
 

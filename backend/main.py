@@ -1,9 +1,5 @@
-import json
 import os
-import subprocess
-import uuid
 from contextlib import asynccontextmanager
-from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -30,7 +26,6 @@ NOTION_HEADERS = {
     "Notion-Version": "2022-06-28",
     "Content-Type": "application/json",
 }
-ACTIVE_DB_ID = "ab0e28e53b474394815913bee3329241"
 CHAT_CONFIG = config.CHAT_CONFIG
 
 LONGTERM_PAGES = {
@@ -180,204 +175,35 @@ async def append_longterm(domain: str, payload: dict):
 
 
 # ---------------------------------------------------------------------------
-# Reggia Items CRUD
+# Reggia Items CRUD (local SQLite)
 # ---------------------------------------------------------------------------
-
-def _item_from_page(page: dict, today: date) -> dict:
-    props = page.get("properties", {})
-    name = _extract_title(props.get("Title", {}))
-    domain = _extract_select(props.get("Domain", {}))
-    priority = _extract_select(props.get("Priority", {}))
-    status = _extract_select(props.get("Status", {}))
-    sensitivity = _extract_select(props.get("Sensitivity", {}))
-    notes = _extract_rich_text(props.get("Notes", {}))
-    due_date = _extract_date(props.get("Due", {}))
-    created_time = page.get("created_time", "")
-
-    days_until_due = None
-    if due_date:
-        days_until_due = (due_date - today).days
-
-    created_date = None
-    days_since_created = None
-    if created_time:
-        created_date = date.fromisoformat(created_time[:10])
-        days_since_created = (today - created_date).days
-
-    return {
-        "id": page["id"],
-        "name": name,
-        "domain": domain,
-        "priority": priority,
-        "status": status,
-        "sensitivity": sensitivity,
-        "notes": notes,
-        "due_date": due_date.isoformat() if due_date else None,
-        "days_until_due": days_until_due,
-        "days_since_created": days_since_created,
-        "url": page.get("url", ""),
-    }
-
 
 @app.get("/reggia/items")
 async def list_items(status: Optional[str] = Query(default=None), domain: Optional[str] = Query(default=None)):
-    _check_notion_key()
-    today = date.today()
-
-    conditions = []
-    if status:
-        conditions.append({"property": "Status", "select": {"equals": status}})
-    if domain:
-        conditions.append({"property": "Domain", "select": {"equals": domain}})
-
-    filter_payload = {}
-    if len(conditions) == 1:
-        filter_payload = {"filter": conditions[0]}
-    elif len(conditions) > 1:
-        filter_payload = {"filter": {"and": conditions}}
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"https://api.notion.com/v1/databases/{ACTIVE_DB_ID}/query",
-            headers=NOTION_HEADERS,
-            json=filter_payload,
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
-
-        results = resp.json().get("results", [])
-        items = [_item_from_page(r, today) for r in results]
-        items.sort(key=lambda x: (
-            x["days_until_due"] is None,
-            x["days_until_due"] if x["days_until_due"] is not None else 999,
-        ))
-        return items
+    return db.list_items(status=status, domain=domain)
 
 
 @app.post("/reggia/items")
 async def create_item(payload: dict):
-    _check_notion_key()
-
-    properties = {
-        "Title": {"title": [{"text": {"content": payload.get("name", "")}}]},
-    }
-
-    if payload.get("domain"):
-        properties["Domain"] = {"select": {"name": payload["domain"]}}
-    if payload.get("priority"):
-        properties["Priority"] = {"select": {"name": payload["priority"]}}
-    if payload.get("status"):
-        properties["Status"] = {"select": {"name": payload["status"]}}
-    else:
-        properties["Status"] = {"select": {"name": "active"}}
-    if payload.get("due_date"):
-        properties["Due"] = {"date": {"start": payload["due_date"]}}
-    if payload.get("sensitivity"):
-        properties["Sensitivity"] = {"select": {"name": payload["sensitivity"]}}
-    if payload.get("notes"):
-        properties["Notes"] = {"rich_text": [{"text": {"content": payload["notes"]}}]}
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.notion.com/v1/pages",
-            headers=NOTION_HEADERS,
-            json={"parent": {"database_id": ACTIVE_DB_ID}, "properties": properties},
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
-
-        return _item_from_page(resp.json(), date.today())
+    if not payload.get("name"):
+        raise HTTPException(status_code=400, detail="name is required")
+    return db.create_item(payload)
 
 
 @app.patch("/reggia/items/{item_id}")
 async def update_item(item_id: str, payload: dict):
-    _check_notion_key()
-
-    properties = {}
-    if "name" in payload:
-        properties["Title"] = {"title": [{"text": {"content": payload["name"]}}]}
-    if "domain" in payload:
-        properties["Domain"] = {"select": {"name": payload["domain"]}}
-    if "priority" in payload:
-        properties["Priority"] = {"select": {"name": payload["priority"]}}
-    if "status" in payload:
-        properties["Status"] = {"select": {"name": payload["status"]}}
-    if "due_date" in payload:
-        properties["Due"] = {"date": {"start": payload["due_date"]} if payload["due_date"] else {"date": None}}
-    if "sensitivity" in payload:
-        properties["Sensitivity"] = {"select": {"name": payload["sensitivity"]}}
-    if "notes" in payload:
-        properties["Notes"] = {"rich_text": [{"text": {"content": payload["notes"]}}]}
-
-    if not properties:
-        raise HTTPException(status_code=400, detail="no properties to update")
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.patch(
-            f"https://api.notion.com/v1/pages/{item_id}",
-            headers=NOTION_HEADERS,
-            json={"properties": properties},
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
-
-        return _item_from_page(resp.json(), date.today())
+    result = db.update_item(item_id, payload)
+    if result is None:
+        raise HTTPException(status_code=404, detail="item not found")
+    return result
 
 
 @app.delete("/reggia/items/{item_id}")
 async def delete_item(item_id: str, hard: bool = Query(default=False)):
-    _check_notion_key()
-
-    if hard:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.patch(
-                f"https://api.notion.com/v1/pages/{item_id}",
-                headers=NOTION_HEADERS,
-                json={"archived": True},
-            )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
-        return {"id": item_id, "deleted": True}
-    else:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.patch(
-                f"https://api.notion.com/v1/pages/{item_id}",
-                headers=NOTION_HEADERS,
-                json={"properties": {"Status": {"select": {"name": "dropped"}}}},
-            )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
-        return {"id": item_id, "status": "dropped"}
-
-
-# ---------------------------------------------------------------------------
-# Extract helpers
-# ---------------------------------------------------------------------------
-
-def _extract_title(prop: dict) -> str:
-    titles = prop.get("title", [])
-    if not titles:
-        return ""
-    return "".join(t.get("plain_text", "") for t in titles)
-
-
-def _extract_select(prop: dict) -> str | None:
-    sel = prop.get("select")
-    if sel is None:
-        return None
-    return sel.get("name")
-
-
-def _extract_date(prop: dict) -> date | None:
-    d = prop.get("date")
-    if d is None or d.get("start") is None:
-        return None
-    return date.fromisoformat(d["start"])
-
-
-def _extract_rich_text(prop: dict) -> str:
-    texts = prop.get("rich_text", [])
-    return "".join(t.get("plain_text", "") for t in texts)
+    result = db.delete_item(item_id, hard)
+    if result is None:
+        raise HTTPException(status_code=404, detail="item not found")
+    return result
 
 
 # ---------------------------------------------------------------------------

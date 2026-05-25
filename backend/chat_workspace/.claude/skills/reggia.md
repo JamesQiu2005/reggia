@@ -10,16 +10,16 @@ Skip it for generic technical questions, pure factual lookups, or anything where
 
 ## How to read
 
-All endpoints are at `http://localhost:8000`. Use curl:
+All endpoints are at `http://host.docker.internal:8000`. Use curl:
 
-- `curl -s "http://localhost:8000/reggia/index"` — query routing guide (ALWAYS read this first)
-- `curl -s "http://localhost:8000/reggia/longterm/work"` — page 01: Work & Academic
-- `curl -s "http://localhost:8000/reggia/longterm/research"` — page 02: Research Trajectory
-- `curl -s "http://localhost:8000/reggia/longterm/intellectual"` — page 03: Intellectual Project
-- `curl -s "http://localhost:8000/reggia/longterm/personal"` — page 04: Personal
-- `curl -s "http://localhost:8000/reggia/items?status=active"` — page 05: Active Items, sorted by urgency
-- `curl -s "http://localhost:8000/reggia/items?status=pending"` — pending items
-- `curl -s "http://localhost:8000/reggia/items?domain={domain}"` — filter active items by domain (research, application, work, admin, writing, personal)
+- `curl -s "http://host.docker.internal:8000/reggia/index"` — query routing guide (ALWAYS read this first)
+- `curl -s "http://host.docker.internal:8000/reggia/longterm/work"` — page 01: Work & Academic
+- `curl -s "http://host.docker.internal:8000/reggia/longterm/research"` — page 02: Research Trajectory
+- `curl -s "http://host.docker.internal:8000/reggia/longterm/intellectual"` — page 03: Intellectual Project
+- `curl -s "http://host.docker.internal:8000/reggia/longterm/personal"` — page 04: Personal
+- `curl -s "http://host.docker.internal:8000/reggia/items?status=active"` — page 05: Active Items, sorted by urgency
+- `curl -s "http://host.docker.internal:8000/reggia/items?status=pending"` — pending items
+- `curl -s "http://host.docker.internal:8000/reggia/items?domain={domain}"` — filter active items by domain (research, application, work, admin, writing, personal)
 
 The index page refers to pages by number (01, 02, 03, 04, 05). Use the mapping above to fetch them.
 
@@ -61,7 +61,7 @@ Do NOT propose updates for: trivial corrections, one-off facts already in active
 ### How to update
 
 ```
-curl -s -X POST "http://localhost:8000/reggia/longterm/{domain}" \
+curl -s -X POST "http://host.docker.internal:8000/reggia/longterm/{domain}" \
   -H "Content-Type: application/json" \
   -d '{"content": "text to append", "type": "bulleted_list_item"}'
 ```

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Reggia is a personal AI chat frontend backed by a personal knowledge base in Notion. The user ("Hanze") maintains structured long-term context and active items in Notion; the app provides a two-pane UI — chat on the left, knowledge base CRUD on the right — with a FastAPI backend orchestrating between the frontend, Claude Code subprocesses (routed through DeepSeek), and the Notion API.
+Reggia is a personal AI chat frontend backed by a personal knowledge base. The user ("Hanze") maintains structured long-term context in Notion and active items in local SQLite; the app provides a two-pane UI — chat on the left, knowledge base CRUD on the right — with a FastAPI backend orchestrating between the frontend, a Docker-contained Claude Code subprocess (connected directly to DeepSeek), and the Notion API.
 
 ## Directory structure
 
@@ -13,22 +13,30 @@ Reggia/
 ├── per_session_control.md          # Session management spec
 ├── pyproject.toml                  # UV project (fastapi, uvicorn, httpx)
 ├── uv.lock
-├── reggia.db                       # SQLite (created on first run)
+├── Dockerfile                      # CC container image (node:24-alpine + claude-code)
+├── docker-compose.yml              # reggia-cc service definition
+├── docker-entrypoint.sh            # URL/path substitution for Docker environment
+├── start.sh                        # One-command startup (build + up + uvicorn)
+├── .env.example                    # Required env vars template
 │
 ├── backend/
-│   ├── main.py                     # FastAPI app, items CRUD, longterm pages, static mount
-│   ├── config.py                   # Shared config (CHAT_CONFIG, CHAT_WORKSPACE path)
-│   ├── db.py                       # SQLite schema, session/message CRUD, cache stats
+│   ├── main.py                     # FastAPI app, items CRUD (SQLite), longterm pages (Notion)
+│   ├── config.py                   # Shared config, CC_MODE flag (docker/local)
+│   ├── db.py                       # SQLite schema (sessions, messages, items), CRUD helpers
 │   ├── prompts.py                  # Cache-optimized prompt builder, title prompt
-│   ├── sessions.py                 # /sessions CRUD, /sessions/{id}/chat, debug logging
-│   ├── chat_config.json            # Model list + defaults
-│   ├── chat_workspace/             # Isolated cwd for frontend chat CC subprocesses
-│   │   ├── CLAUDE.md               # Minimal chat instructions (~200 tokens)
+│   ├── sessions.py                 # /sessions CRUD, /sessions/{id}/chat, Docker exec wrapper
+│   ├── chat_config.json            # Model list + defaults (deepseek-v4-pro[1m], deepseek-v4-flash)
+│   ├── chat_workspace/             # Mounted into Docker container as /workspace
+│   │   ├── CLAUDE.md               # Chat persona + Reggia query instructions
 │   │   └── .claude/
-│   │       ├── settings.json       # Permissions: Read(chat_workspace/**), Bash(curl *localhost*), WebSearch, WebFetch
+│   │       ├── settings.json       # Permissions: Read(/workspace/**), Bash(curl *host.docker.internal*)
 │   │       └── skills/
 │   │           └── reggia.md       # Condensed skill: backend endpoints, routing, sensitivity
-│   └── logs/                       # Per-session debug logs (chat_{session_id}.jsonl)
+│   ├── databases/                  # SQLite files (WAL mode)
+│   │   ├── reggia_session.db       # Sessions + messages
+│   │   └── reggia_items.db         # Active items (local, not Notion)
+│   ├── logs/                       # Per-session debug logs (chat_{session_id}.jsonl)
+│   └── .env                        # NOTION_API_KEY + DEEPSEEK_API_KEY (gitignored)
 │
 ├── frontend/
 │   ├── index.html                  # Two-pane layout: chat + Reggia panel
@@ -49,20 +57,25 @@ Reggia/
 
 The project involves **two separate CC contexts**:
 
-| | Orchestration CC (this session) | Chat CC (subprocess) |
+| | Orchestration CC (this session) | Chat CC (Docker container) |
 |---|---|---|
-| **cwd** | `Reggia/` (project root) | `backend/chat_workspace/` |
-| **CLAUDE.md** | Full orchestration instructions | Minimal chat persona (~200 tokens) |
+| **Runtime** | Host machine | Docker `reggia-cc` container |
+| **cwd** | `Reggia/` (project root) | `/workspace/` (volume-mount from `chat_workspace/`) |
+| **CLAUDE.md** | Full orchestration instructions | Chat persona + Reggia query rules |
 | **Skills** | `skills/reggia_notion.md` | `.claude/skills/reggia.md` (condensed) |
 | **Notion access** | Direct Notion API (has key) | Via backend REST endpoints only |
+| **API routing** | OAuth to Anthropic | `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` (direct to DeepSeek) |
 | **Purpose** | Code editing, architecture, system control | User-facing chat |
 
-The chat CC is spawned per-request via `asyncio.create_subprocess_exec` (async, non-blocking) with:
+The chat CC is spawned per-request from the backend via `docker exec`:
 ```
-claude --output-format stream-json --verbose --permission-mode acceptEdits
-       --model <model> [-resume <cc_session_id>] -p <prompt>
-       [cwd = chat_workspace/]
+docker exec -i reggia-cc claude --output-format stream-json --verbose
+       --permission-mode acceptEdits --model <model> [-resume <cc_session_id>] -p <prompt>
 ```
+
+The `CC_MODE` env var controls the subprocess wrapper:
+- `docker` (default): wraps in `docker exec -i reggia-cc`
+- `local`: spawns `claude` directly with `cwd=chat_workspace/` (legacy, less isolated)
 
 ## Backend endpoints
 
@@ -74,19 +87,19 @@ claude --output-format stream-json --verbose --permission-mode acceptEdits
 | `GET /sessions/search?q=` | Search sessions by title and message content |
 | `GET /sessions/{id}` | Session metadata + full message history |
 | `DELETE /sessions/{id}` | Soft delete (archive) |
-| `POST /sessions/{id}/chat` | Send message, SSE stream response from CC subprocess |
+| `POST /sessions/{id}/chat` | Send message, SSE stream response from Docker CC |
 | `POST /sessions/{id}/title` | Manually rename session |
 | `GET /chat/config` | Model list + default |
 | `GET /chat/logs` | List debug log files |
 | `GET /chat/logs/{session_id}` | Read session debug log (last 200 lines) |
 
-### Reggia items CRUD (Notion proxy)
+### Reggia items CRUD (local SQLite)
 | Endpoint | Description |
 |---|---|
 | `GET /reggia/items?status=active&domain=research` | Query with status/domain filters |
-| `POST /reggia/items` | Create item in Notion database |
-| `PATCH /reggia/items/{id}` | Update any field |
-| `DELETE /reggia/items/{id}` | Soft delete (Status=dropped) or `?hard=true` to archive |
+| `POST /reggia/items` | Create item in local SQLite |
+| `PATCH /reggia/items/{id}` | Update any field (name, domain, priority, status, sensitivity, due_date, notes) |
+| `DELETE /reggia/items/{id}` | Soft delete (status=dropped) or `?hard=true` to archive |
 
 ### Reggia long-term pages (Notion proxy)
 | Endpoint | Description |
@@ -102,8 +115,8 @@ claude --output-format stream-json --verbose --permission-mode acceptEdits
 User types message
   → app.js: POST /sessions/{id}/chat {prompt, model}
   → sessions.py: load history from SQLite, build cache-optimized prompt
-  → asyncio.create_subprocess_exec: claude -p <full_prompt>  [cwd=chat_workspace/]
-  → CC sends to DeepSeek, streams jsonl back
+  → docker exec -i reggia-cc claude -p <full_prompt>
+  → CC (in Docker) → DeepSeek API (via ANTHROPIC_BASE_URL), streams jsonl back
   → sessions.py: SSE stream to frontend, save assistant msg + cache stats to SQLite
   → app.js: render markdown via marked.js
 ```
@@ -112,30 +125,34 @@ User types message
 ```
 Panel load / filter change
   → app.js: GET /reggia/items?status=active
-  → main.py: Notion API query → compute urgency → return JSON
+  → main.py: SQLite query → compute urgency → return JSON
   → app.js: render collapsed cards
 
 Quick add / edit / delete
   → app.js: POST|PATCH|DELETE /reggia/items[/{id}]
-  → main.py: Notion API create|update|archive
+  → main.py: SQLite create|update|archive
   → app.js: reload items
 ```
 
 ### Chat CC accessing Reggia
 ```
-CC required to query Reggia on every message
-  → Bash: curl http://localhost:8000/reggia/index (routing guide)
+CC (in Docker) required to query Reggia on every message
+  → Bash: curl http://host.docker.internal:8000/reggia/index (routing guide)
   → Based on index routing, pull relevant longterm pages + active items
-  → main.py: Notion API → return data
+  → main.py: SQLite query or Notion API → return data
   → CC incorporates personal context into response
 ```
 
 ## SQLite schema
 
-Two tables in `reggia.db` (WAL mode):
+Three tables across two databases (WAL mode):
 
-**sessions**: `id`, `title`, `created_at`, `updated_at`, `archived`
-**messages**: `id`, `session_id`, `role` (user/assistant), `content`, `created_at`, `cache_hit_tokens`, `cache_miss_tokens`, `output_tokens`
+**reggia_session.db**:
+- **sessions**: `id`, `title`, `created_at`, `updated_at`, `archived`
+- **messages**: `id`, `session_id`, `role` (user/assistant), `content`, `created_at`, `cache_hit_tokens`, `cache_miss_tokens`, `output_tokens`
+
+**reggia_items.db**:
+- **items**: `id`, `name`, `domain`, `priority`, `status`, `sensitivity`, `notes`, `due_date`, `created_at`, `archived`
 
 Session titles are auto-generated from the first message via a lightweight CC call.
 
@@ -152,10 +169,12 @@ The spec (`per_session_control.md`) details this design. Cache stats are logged 
 ## Key design decisions
 
 - **Backend is the single Notion gateway** — neither the frontend nor the chat CC has the Notion API key
-- **Chat CC runs in isolated workspace** — `chat_workspace/` cwd prevents loading the orchestration CLAUDE.md
-- **Session persistence in SQLite** — survives server restarts; CC subprocesses remain stateless
-- **--resume for session continuity** — second message in a session resumes the CC session (prompt caching + conversation memory)
-- **Permission pre-approval** — chat CC settings.json restricts Read to `chat_workspace/**`, Bash to `curl *localhost*`, plus WebSearch, WebFetch; `--permission-mode acceptEdits` auto-approves allowed tools
+- **Chat CC runs in Docker** — `docker exec` with container name `reggia-cc`; true filesystem isolation via container boundary, not just permission config
+- **DeepSeek direct** — container uses `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` to bypass the Anthropic API middleman; OAuth not needed
+- **Local SQLite for items** — active items migrated from Notion database to local SQLite (`reggia_items.db`); Notion still used for long-term pages only
+- **chat_workspace as volume mount** — `./backend/chat_workspace:/workspace` lets you edit CLAUDE.md and skill files locally; changes take effect instantly, no rebuild
+- **Session persistence in SQLite** — survives server restarts; Docker CC state is container-ephemeral (`--resume` works within a container lifetime)
+- **Permission pre-approval** — chat CC settings.json restricts Read to `/workspace/**`, Bash to `curl *host.docker.internal*`, plus WebSearch, WebFetch; `--permission-mode acceptEdits` auto-approves allowed tools
 - **Debug logging** — all CC stdout lines written to `backend/logs/chat_{session_id}.jsonl`
 - **IME-safe inputs** — `e.isComposing` check on all Enter-key handlers
 
@@ -163,7 +182,14 @@ The spec (`per_session_control.md`) details this design. Cache stats are logged 
 
 ```bash
 cd "/Users/xiaojinqiu/Documents/Summer 2026/Reggia"
+
+# One command:
+./start.sh
+
+# Or step by step:
+docker compose build          # first time only, or after Dockerfile changes
+docker compose up -d          # start CC container
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Requires: `NOTION_API_KEY` environment variable, `claude` binary in PATH, UV package manager.
+Requires: `DEEPSEEK_API_KEY` + `NOTION_API_KEY` in `backend/.env`, Docker Desktop, UV package manager.
