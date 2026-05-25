@@ -5,6 +5,7 @@ services:
     volumes:
       - ./backend/chat_workspace:/workspace
     environment:
+      - SHELL=/bin/bash
       - ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
       - ANTHROPIC_AUTH_TOKEN=${DEEPSEEK_API_KEY}
       - ANTHROPIC_MODEL=deepseek-v4-pro[1m]

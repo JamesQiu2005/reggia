@@ -1,8 +1,8 @@
 :root {
   --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f6f8fa;
-  --color-bg-tertiary: #f0f2f5;
-  --color-bg-app: #f3f5f8;
+  --color-bg-secondary: #ECEFF3;
+  --color-bg-tertiary: #E2E6EB;
+  --color-bg-app: #F6F8F9;
   --color-border-primary: #d0d7de;
   --color-border-secondary: #d8dee4;
   --color-border-tertiary: #e3e8ee;
@@ -18,6 +18,9 @@
   --color-orange-border: #ba7517;
   --color-blue-bg: #e6f1fb;
   --color-blue-text: #042c53;
+  --color-indigo-bg: #E5EAF5;
+  --color-indigo-text: #1E3A8A;
+  --color-indigo-border: #5567B0;
   --color-star: #d6a51d;
   --radius-md: 6px;
   --radius-lg: 10px;
@@ -45,20 +48,12 @@ html, body {
 }
 
 #app {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr var(--reggia-width);
-  gap: 14px;
-  height: 100vh;
-  padding: 14px;
-  margin: 0;
-  transition: grid-template-columns 0.2s ease;
   position: relative;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--color-bg-app);
 }
-
-/* Collapsed states: collapse left, right, or both — drop the column entirely */
-#app.sidebar-collapsed { grid-template-columns: 1fr var(--reggia-width); }
-#app.reggia-collapsed  { grid-template-columns: var(--sidebar-width) 1fr; }
-#app.sidebar-collapsed.reggia-collapsed { grid-template-columns: 1fr; }
 
 #app.sidebar-collapsed #sidebar { display: none; }
 #app.reggia-collapsed  #reggia-panel { display: none; }
@@ -104,14 +99,20 @@ html, body {
 /* ------------------------------------------------------------------ */
 
 #sidebar {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  bottom: 14px;
+  width: var(--sidebar-width);
   background: var(--color-bg-primary);
   border: 0.5px solid var(--color-border-tertiary);
-  border-radius: 8px;
-  box-shadow: var(--shadow-card);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  z-index: 20;
 }
 
 #sidebar-header {
@@ -431,25 +432,32 @@ html, body {
 /* ------------------------------------------------------------------ */
 
 #chat-pane {
-  background: var(--color-bg-primary);
-  border: 0.5px solid var(--color-border-tertiary);
-  border-radius: 8px;
-  box-shadow: var(--shadow-card);
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  z-index: 1;
 }
 
 #chat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
-  border-bottom: 0.5px solid var(--color-border-tertiary);
+  padding: 14px calc(var(--reggia-width) + 28px) 14px calc(var(--sidebar-width) + 28px);
   flex-shrink: 0;
   gap: 8px;
+  background: transparent;
+  transition: padding 0.2s ease;
 }
+
+#app.sidebar-collapsed #chat-header { padding-left: 60px; }
+#app.reggia-collapsed  #chat-header { padding-right: 60px; }
 
 .chat-header-left,
 .chat-header-right {
@@ -470,13 +478,17 @@ html, body {
 
 #chat-messages {
   flex: 1;
-  padding: 24px 24px 8px;
+  padding: 24px calc(var(--reggia-width) + 28px) 8px calc(var(--sidebar-width) + 28px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 16px;
+  transition: padding 0.2s ease;
 }
+
+#app.sidebar-collapsed #chat-messages { padding-left: 24px; }
+#app.reggia-collapsed  #chat-messages { padding-right: 24px; }
 
 .chat-messages-inner {
   width: 100%;
@@ -489,11 +501,15 @@ html, body {
 
 /* Input bar */
 #chat-input-bar {
-  padding: 8px 16px 16px;
+  padding: 8px calc(var(--reggia-width) + 28px) 16px calc(var(--sidebar-width) + 28px);
   flex-shrink: 0;
   display: flex;
   justify-content: center;
+  transition: padding 0.2s ease;
 }
+
+#app.sidebar-collapsed #chat-input-bar { padding-left: 16px; }
+#app.reggia-collapsed  #chat-input-bar { padding-right: 16px; }
 
 .chat-input-inner {
   width: 100%;
@@ -738,6 +754,43 @@ html, body {
   background: none;
   padding: 0;
 }
+
+/* highlight.js — VS Code Light overrides. The bundled `vs` theme paints a
+   white background on .hljs which would fight our pre wrapper; cancel that
+   and refine a few token colors to match VS Code Light Modern. */
+.msg-assistant pre code.hljs {
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-primary);
+}
+.msg-assistant .hljs-keyword,
+.msg-assistant .hljs-selector-tag,
+.msg-assistant .hljs-literal { color: #0000FF; }
+.msg-assistant .hljs-built_in,
+.msg-assistant .hljs-type,
+.msg-assistant .hljs-class .hljs-title,
+.msg-assistant .hljs-title.class_ { color: #267F99; }
+.msg-assistant .hljs-string,
+.msg-assistant .hljs-meta-string { color: #A31515; }
+.msg-assistant .hljs-number,
+.msg-assistant .hljs-symbol { color: #098658; }
+.msg-assistant .hljs-comment,
+.msg-assistant .hljs-quote { color: #008000; font-style: italic; }
+.msg-assistant .hljs-function .hljs-title,
+.msg-assistant .hljs-title.function_ { color: #795E26; }
+.msg-assistant .hljs-variable,
+.msg-assistant .hljs-attr,
+.msg-assistant .hljs-attribute { color: #001080; }
+.msg-assistant .hljs-tag,
+.msg-assistant .hljs-name { color: #800000; }
+.msg-assistant .hljs-regexp { color: #811F3F; }
+.msg-assistant .hljs-meta { color: #AF00DB; }
+
+/* KaTeX — keep math at the same near-black color as conversation text and
+   match the surrounding font size. */
+.msg-assistant .katex { color: var(--color-text-primary); font-size: 1.05em; }
+.msg-assistant .katex-display { margin: 10px 0; overflow-x: auto; overflow-y: hidden; }
+
 .msg-assistant blockquote {
   border-left: 2px solid var(--color-border-secondary);
   padding-left: 10px;
@@ -753,10 +806,15 @@ html, body {
 /* ------------------------------------------------------------------ */
 
 #reggia-panel {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: var(--reggia-width);
   background: var(--color-bg-primary);
   border: 0.5px solid var(--color-border-tertiary);
-  border-radius: 8px;
-  box-shadow: var(--shadow-card);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -764,6 +822,7 @@ html, body {
   overflow: hidden;
   min-height: 0;
   min-width: 0;
+  z-index: 20;
 }
 
 #reggia-panel-header {
@@ -843,7 +902,7 @@ html, body {
 }
 
 .item-card.p0 { border-left-color: var(--color-red-border); }
-.item-card.p1 { border-left-color: var(--color-orange-border); }
+.item-card.p1 { border-left-color: var(--color-indigo-border); }
 .item-card.p2 { border-left-color: var(--color-border-secondary); }
 
 .item-card-row {
@@ -863,8 +922,8 @@ html, body {
 }
 
 .pill-p1 {
-  background: var(--color-orange-bg);
-  color: var(--color-orange-text);
+  background: var(--color-indigo-bg);
+  color: var(--color-indigo-text);
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 4px;
@@ -908,7 +967,7 @@ html, body {
 }
 
 .item-expanded.p0 { border-left-color: var(--color-red-border); }
-.item-expanded.p1 { border-left-color: var(--color-orange-border); }
+.item-expanded.p1 { border-left-color: var(--color-indigo-border); }
 
 .item-expanded-title {
   width: 100%;
@@ -960,7 +1019,7 @@ html, body {
 }
 
 .priority-pill.selected.p0 { background: var(--color-red-bg); color: var(--color-red-text); border-color: var(--color-red-border); font-weight: 500; }
-.priority-pill.selected.p1 { background: var(--color-orange-bg); color: var(--color-orange-text); border-color: var(--color-orange-border); font-weight: 500; }
+.priority-pill.selected.p1 { background: var(--color-indigo-bg); color: var(--color-indigo-text); border-color: var(--color-indigo-border); font-weight: 500; }
 .priority-pill.selected.p2, .priority-pill.selected.p3 { color: var(--color-text-primary); font-weight: 500; }
 
 /* Sensitivity pills */
@@ -990,7 +1049,7 @@ html, body {
 .sensitivity-pill.sel.agent-readable,
 .sensitivity-pill.sel.agent-readable { background: var(--color-blue-bg); color: var(--color-blue-text); border-color: var(--color-text-info); font-weight: 500; }
 
-.sensitivity-pill.sel.contextual { background: var(--color-orange-bg); color: var(--color-orange-text); border-color: var(--color-orange-border); font-weight: 500; }
+.sensitivity-pill.sel.contextual { background: var(--color-indigo-bg); color: var(--color-indigo-text); border-color: var(--color-indigo-border); font-weight: 500; }
 
 .sensitivity-pill.sel.private { background: var(--color-red-bg); color: var(--color-red-text); border-color: var(--color-red-border); font-weight: 500; }
 
@@ -1194,3 +1253,81 @@ html, body {
   color: var(--color-text-tertiary);
   font-size: 12px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Long-term-memory sync conflict modal                                */
+/* ------------------------------------------------------------------ */
+
+.sync-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.sync-modal {
+  background: var(--color-bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-menu);
+  padding: 20px 22px;
+  width: min(480px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.sync-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 6px;
+}
+
+.sync-modal-sub {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.sync-conflict-row {
+  border-top: 0.5px solid var(--color-border-tertiary);
+  padding: 12px 0;
+}
+
+.sync-conflict-head {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  text-transform: capitalize;
+}
+
+.sync-conflict-meta {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin: 4px 0 8px;
+}
+
+.sync-conflict-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sync-btn {
+  font-size: 12px;
+  font-family: inherit;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 0.5px solid var(--color-border-secondary);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.sync-btn:hover { background: var(--color-bg-secondary); }
+.sync-btn:disabled { cursor: default; opacity: 0.6; }
+
+.sync-btn-local { border-color: var(--color-indigo-border); color: var(--color-indigo-text); }
+.sync-btn-notion { border-color: var(--color-border-secondary); }

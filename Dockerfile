@@ -1,7 +1,7 @@
 FROM node:24-alpine
 
 # Sandbox dependencies (bubblewrap for filesystem isolation, socat for network)
-RUN apk add --no-cache bubblewrap socat curl
+RUN apk add --no-cache bubblewrap socat curl bash
 
 RUN npm install -g @anthropic-ai/claude-code
 

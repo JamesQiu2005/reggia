@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, sessions as sessions_mod
+from . import config, db, longterm_db, sessions as sessions_mod, sync
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -20,26 +21,17 @@ load_dotenv(BASE_DIR / ".env")
 # Config
 # ---------------------------------------------------------------------------
 
-NOTION_KEY = os.environ.get("NOTION_API_KEY", "")
-NOTION_HEADERS = {
-    "Authorization": f"Bearer {NOTION_KEY}",
-    "Notion-Version": "2022-06-28",
-    "Content-Type": "application/json",
-}
 CHAT_CONFIG = config.CHAT_CONFIG
 
-LONGTERM_PAGES = {
-    "work":         "36affd9902ce8191acf6cf6dd3b29eea",
-    "research":     "36affd9902ce8175b2b2e52fce450723",
-    "intellectual": "36affd9902ce8159bbe2d8b1febf35d6",
-    "personal":     "36affd9902ce81819e90e0097ceeffe1",
-}
-INDEX_PAGE_ID = "36affd9902ce81ec9f25f5fc438765f3"
+VALID_BLOCK_TYPES = {"paragraph", "bulleted_list_item", "heading_3", "numbered_list_item"}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    longterm_db.init_db()
+    # Pull Notion in the background — never block boot on a slow Notion.
+    asyncio.create_task(sync.pull_all_background(timeout_s=30))
     yield
 
 
@@ -69,109 +61,96 @@ async def chat_config():
 
 
 # ---------------------------------------------------------------------------
-# Reggia — longterm pages
+# Reggia — longterm pages (SQLite-first; Notion via background sync)
 # ---------------------------------------------------------------------------
 
-def _check_notion_key():
-    if not NOTION_KEY:
-        raise HTTPException(status_code=500, detail="NOTION_API_KEY not configured")
-
-
-async def _fetch_page_text(page_id: str) -> str:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100",
-            headers=NOTION_HEADERS,
+def _serve_longterm(domain: str) -> PlainTextResponse:
+    row = longterm_db.get(domain)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"unknown domain: {domain}")
+    if not (row.get("content_md") or "").strip() and not row.get("synced_at"):
+        raise HTTPException(
+            status_code=503,
+            detail="not synced yet — run POST /reggia/sync/pull",
         )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
-
-        blocks = resp.json().get("results", [])
-        lines = []
-
-        for b in blocks:
-            btype = b.get("type", "")
-            text_parts = []
-
-            if btype in ("paragraph", "heading_1", "heading_2", "heading_3",
-                         "bulleted_list_item", "numbered_list_item", "toggle", "quote"):
-                rich = b.get(btype, {}).get("rich_text", [])
-                text_parts = [t.get("plain_text", "") for t in rich]
-
-            elif btype == "table_row":
-                cells = b.get("table_row", {}).get("cells", [])
-                row = []
-                for cell in cells:
-                    cell_text = "".join(t.get("plain_text", "") for t in cell)
-                    row.append(cell_text)
-                text_parts = [" | ".join(row)]
-
-            elif btype == "table":
-                pass
-
-            if text_parts:
-                lines.append("".join(text_parts))
-
-            if b.get("has_children"):
-                try:
-                    child_text = await _fetch_page_text(b["id"])
-                    if child_text:
-                        lines.append(child_text)
-                except Exception:
-                    pass
-
-        return "\n".join(lines)
+    return PlainTextResponse(
+        content=row["content_md"] or "",
+        headers={"X-Reggia-Sync-State": row.get("sync_state") or "clean"},
+    )
 
 
 @app.get("/reggia/longterm/{domain}", response_class=PlainTextResponse)
 async def get_longterm(domain: str):
-    _check_notion_key()
-    page_id = LONGTERM_PAGES.get(domain)
-    if not page_id:
-        raise HTTPException(status_code=404, detail=f"unknown domain: {domain}")
-    return await _fetch_page_text(page_id)
+    if domain == "index":
+        # `index` is a real domain in the longterm table but the chat-CC
+        # contract exposes it at /reggia/index instead; keep that the canonical
+        # path and 404 on /reggia/longterm/index to avoid two URLs for one thing.
+        raise HTTPException(status_code=404, detail="use GET /reggia/index")
+    return _serve_longterm(domain)
 
 
 @app.get("/reggia/index", response_class=PlainTextResponse)
 async def get_index():
-    _check_notion_key()
-    return await _fetch_page_text(INDEX_PAGE_ID)
+    return _serve_longterm("index")
 
 
 @app.post("/reggia/longterm/{domain}")
 async def append_longterm(domain: str, payload: dict):
-    """Append a block to a long-term Notion page."""
-    _check_notion_key()
-    page_id = LONGTERM_PAGES.get(domain)
-    if not page_id:
+    """Append a block to a long-term page (local SQLite + Notion in one request)."""
+    if domain not in longterm_db.SEED_PAGES or domain == "index":
         raise HTTPException(status_code=404, detail=f"unknown domain: {domain}")
 
-    content = payload.get("content", "").strip()
+    content = (payload.get("content") or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="content is required")
 
     block_type = payload.get("type", "paragraph")
-    if block_type not in ("paragraph", "bulleted_list_item", "heading_3", "numbered_list_item"):
+    if block_type not in VALID_BLOCK_TYPES:
         raise HTTPException(status_code=400, detail=f"unsupported block type: {block_type}")
 
-    block = {
-        "object": "block",
-        "type": block_type,
-        block_type: {
-            "rich_text": [{"type": "text", "text": {"content": content}}]
-        },
-    }
+    try:
+        result = await sync.append_block(domain, content, block_type)
+    except httpx.HTTPError as e:
+        # Local row is already marked local_dirty; tell the caller Notion side
+        # failed so they can retry via POST /reggia/sync/push.
+        raise HTTPException(status_code=502, detail=f"Notion push failed: {e}")
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.patch(
-            f"https://api.notion.com/v1/blocks/{page_id}/children",
-            headers=NOTION_HEADERS,
-            json={"children": [block]},
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
+    if not result.get("ok"):
+        # Conflict or domain-unknown — surface as 409 so chat CC handles it.
+        raise HTTPException(status_code=409, detail=result.get("reason", "append rejected"))
+    return result
 
-    return {"ok": True, "domain": domain, "page_id": page_id}
+
+# ---------------------------------------------------------------------------
+# Reggia — sync control endpoints (additive)
+# ---------------------------------------------------------------------------
+
+@app.get("/reggia/sync/status")
+async def sync_status():
+    return longterm_db.list_status()
+
+
+@app.post("/reggia/sync/pull")
+async def sync_pull():
+    results = await sync.pull_all()
+    return {"results": results}
+
+
+@app.post("/reggia/sync/push")
+async def sync_push():
+    results = await sync.push_dirty()
+    return {"results": results}
+
+
+@app.post("/reggia/sync/resolve")
+async def sync_resolve(payload: dict):
+    domain = (payload.get("domain") or "").strip()
+    winner = (payload.get("winner") or "").strip().lower()
+    if domain not in longterm_db.SEED_PAGES:
+        raise HTTPException(status_code=400, detail=f"unknown domain: {domain}")
+    if winner not in ("local", "notion"):
+        raise HTTPException(status_code=400, detail="winner must be 'local' or 'notion'")
+    return await sync.resolve(domain, winner)
 
 
 # ---------------------------------------------------------------------------

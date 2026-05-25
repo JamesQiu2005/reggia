@@ -258,6 +258,7 @@ function handleStreamMessage(msg, container, state) {
   }
   dbg(`render: hasContent=${state.hasContent}, textLen=${state.textBuf.length}, htmlLen=${html.length}`);
   container.innerHTML = html;
+  renderMath(container);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -302,11 +303,50 @@ function showEmptyState() {
   }
 }
 
+// Configure marked once: hand fenced code blocks to highlight.js so the
+// VS Code Light theme classes get applied.
+if (typeof marked !== "undefined" && typeof hljs !== "undefined") {
+  marked.use({
+    renderer: {
+      code(token) {
+        const raw = typeof token === "string" ? token : (token.text || "");
+        const lang = (typeof token === "object" && token.lang) ? token.lang : "";
+        let highlighted;
+        if (lang && hljs.getLanguage(lang)) {
+          highlighted = hljs.highlight(raw, { language: lang, ignoreIllegals: true }).value;
+        } else {
+          highlighted = hljs.highlightAuto(raw).value;
+        }
+        const cls = lang ? ` language-${lang}` : "";
+        return `<pre><code class="hljs${cls}">${highlighted}</code></pre>`;
+      },
+    },
+  });
+}
+
+const KATEX_DELIMS = [
+  { left: "$$", right: "$$", display: true },
+  { left: "\\[", right: "\\]", display: true },
+  { left: "\\(", right: "\\)", display: false },
+  { left: "$", right: "$", display: false },
+];
+
 function renderMarkdown(text) {
   if (typeof marked !== "undefined") {
     return marked.parse(text);
   }
   return escapeHtml(text).replace(/\n/g, "<br>");
+}
+
+// Apply KaTeX auto-render to any LaTeX delimiters found within `el`.
+// Safe to call repeatedly while streaming — KaTeX only re-renders new content.
+function renderMath(el) {
+  if (!el || typeof renderMathInElement === "undefined") return;
+  try {
+    renderMathInElement(el, { delimiters: KATEX_DELIMS, throwOnError: false });
+  } catch (e) {
+    // never let a math parse error break the whole message
+  }
 }
 
 function escapeHtml(s) {
@@ -1016,6 +1056,7 @@ async function switchSession(id) {
         } else {
           const div = appendMessage("assistant", "");
           div.innerHTML = renderMarkdown(m.content);
+          renderMath(div);
         }
       });
       if (!session.messages || session.messages.length === 0) {
@@ -1046,12 +1087,8 @@ async function init() {
         select.appendChild(opt);
       });
       currentModel = config.default_model;
-      select.addEventListener("change", async () => {
+      select.addEventListener("change", () => {
         currentModel = select.value;
-        // Switching model = new session (fresh CC subprocess with new model)
-        await createNewSession();
-        clearMessages();
-        showEmptyState();
       });
     }
   } catch (e) {
@@ -1198,6 +1235,78 @@ async function init() {
   }
 
   loadItems(currentFilter);
+  checkSyncConflicts();
+}
+
+// ---------------------------------------------------------------------------
+// Longterm-memory sync — conflict modal at boot
+// ---------------------------------------------------------------------------
+
+async function checkSyncConflicts() {
+  let conflicts = [];
+  try {
+    const resp = await fetch("/reggia/sync/status");
+    if (!resp.ok) return;
+    const rows = await resp.json();
+    conflicts = (rows || []).filter(r => r.sync_state === "conflict");
+  } catch (e) {
+    return;
+  }
+  if (conflicts.length === 0) return;
+  renderConflictModal(conflicts);
+}
+
+function renderConflictModal(conflicts) {
+  let modal = document.getElementById("sync-conflict-modal");
+  if (modal) modal.remove();
+
+  modal = document.createElement("div");
+  modal.id = "sync-conflict-modal";
+  modal.className = "sync-modal-overlay";
+  const rowsHtml = conflicts.map(c => {
+    const ne = c.notion_last_edited ? new Date(c.notion_last_edited).toLocaleString() : "—";
+    const le = c.local_modified_at ? new Date(c.local_modified_at).toLocaleString() : "—";
+    return `
+      <div class="sync-conflict-row" data-domain="${escapeHtml(c.domain)}">
+        <div class="sync-conflict-head">${escapeHtml(c.domain)}</div>
+        <div class="sync-conflict-meta">Notion edited: ${escapeHtml(ne)} · Local edited: ${escapeHtml(le)}</div>
+        <div class="sync-conflict-actions">
+          <button class="sync-btn sync-btn-local"  data-domain="${escapeHtml(c.domain)}" data-winner="local">Keep Local</button>
+          <button class="sync-btn sync-btn-notion" data-domain="${escapeHtml(c.domain)}" data-winner="notion">Keep Notion</button>
+        </div>
+      </div>`;
+  }).join("");
+  modal.innerHTML = `
+    <div class="sync-modal">
+      <div class="sync-modal-title">Long-term memory has unresolved conflicts</div>
+      <div class="sync-modal-sub">Both Notion and the local cache changed since the last sync. Pick which version to keep per domain.</div>
+      ${rowsHtml}
+    </div>`;
+  document.body.appendChild(modal);
+
+  modal.querySelectorAll(".sync-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const domain = btn.dataset.domain;
+      const winner = btn.dataset.winner;
+      btn.disabled = true; btn.textContent = "Resolving…";
+      try {
+        await fetch("/reggia/sync/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain, winner }),
+        });
+      } catch (e) {
+        btn.textContent = "Failed — retry";
+        btn.disabled = false;
+        return;
+      }
+      const row = modal.querySelector(`.sync-conflict-row[data-domain="${domain}"]`);
+      if (row) row.remove();
+      if (modal.querySelectorAll(".sync-conflict-row").length === 0) {
+        modal.remove();
+      }
+    });
+  });
 }
 
 init();

@@ -14,6 +14,18 @@ On **subsequent messages**, skip the index (it's static per session). Go directl
 
 Skip Reggia ONLY if the user's message is purely a quick greeting ("hi", "thanks") — everything else goes through Reggia first.
 
+# Backend behavior you should know
+
+Reads of `/reggia/index` and `/reggia/longterm/{domain}` come from a local SQLite cache that the backend keeps two-way-synced with Notion. They are fast (~5 ms) and work offline. Content is Markdown with inline formatting preserved (bold, italics, links, code).
+
+Unusual status codes and how to react:
+
+- **503** on a GET — local cache is empty for that page; tell Hanze "long-term memory not synced yet — run `POST /reggia/sync/pull` from the host" and stop.
+- **409** on a POST `/reggia/longterm/{domain}` — that page is in an unresolved Notion-vs-local conflict. Tell Hanze "there's a sync conflict on `<domain>` — resolve it via the dialog at the top of the Reggia frontend before I can append" and stop.
+- **502** on a POST — Notion push failed. The line is queued locally; tell Hanze the append didn't reach Notion and stop.
+
+Do **not** call `/reggia/sync/*` endpoints yourself; those are for Hanze and the frontend.
+
 # Tool constraints (headless mode)
 You only have Read (this workspace only), Bash(curl *localhost*), WebSearch, WebFetch available.
 Do not attempt Write, Edit, Agent, or other tools.
