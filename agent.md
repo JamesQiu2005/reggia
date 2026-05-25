@@ -71,6 +71,7 @@ claude --output-format stream-json --verbose --permission-mode acceptEdits
 |---|---|
 | `POST /sessions` | Create new session, return UUID |
 | `GET /sessions` | List non-archived sessions |
+| `GET /sessions/search?q=` | Search sessions by title and message content |
 | `GET /sessions/{id}` | Session metadata + full message history |
 | `DELETE /sessions/{id}` | Soft delete (archive) |
 | `POST /sessions/{id}/chat` | Send message, SSE stream response from CC subprocess |
@@ -91,7 +92,8 @@ claude --output-format stream-json --verbose --permission-mode acceptEdits
 | Endpoint | Description |
 |---|---|
 | `GET /reggia/index` | 00 Index & Query Guide (plain text) |
-| `GET /reggia/longterm/{domain}` | domain ∈ {work, research, intellectual, personal} |
+| `GET /reggia/longterm/{domain}` | Read long-term page (domain ∈ {work, research, intellectual, personal}) |
+| `POST /reggia/longterm/{domain}` | Append a block to a long-term page (chat CC updates long-term memory) |
 
 ## Data flow
 
