@@ -1,0 +1,99 @@
+<div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 16px; display: grid; grid-template-columns: 280px 280px; gap: 24px; align-items: start;">
+  
+  <!-- LEFT: Collapsed default state -->
+  <div>
+    <div style="font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Collapsed (default)</div>
+    
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; gap: 4px; margin-bottom: 4px;">
+        <span style="font-size: 11px; padding: 3px 8px; background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); border-radius: 10px; font-weight: 500;">active</span>
+        <span style="font-size: 11px; padding: 3px 8px; color: var(--color-text-tertiary); border-radius: 10px;">pending</span>
+        <span style="font-size: 11px; padding: 3px 8px; color: var(--color-text-tertiary); border-radius: 10px;">all</span>
+      </div>
+      
+      <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+        <i class="ti ti-plus" style="font-size: 14px; color: var(--color-text-tertiary);" aria-hidden="true"></i>
+        <span style="font-size: 12px; color: var(--color-text-tertiary);">Quick add item...</span>
+      </div>
+      
+      <!-- Existing items preview, dimmed -->
+      <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-left: 2px solid #BA7517; border-radius: var(--border-radius-md); padding: 10px 12px; opacity: 0.6;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="background: #FAEEDA; color: #412402; font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 500;">P1</span>
+          <span style="font-size: 10px; color: #A32D2D;">due today</span>
+        </div>
+        <div style="font-size: 12px; line-height: 1.35; font-weight: 500; margin-top: 4px;">Return from Yellowstone roadtrip</div>
+        <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 2px;">personal · active</div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- RIGHT: Expanded create form -->
+  <div>
+    <div style="font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Expanded (click input)</div>
+    
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; gap: 4px; margin-bottom: 4px;">
+        <span style="font-size: 11px; padding: 3px 8px; background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); border-radius: 10px; font-weight: 500;">active</span>
+        <span style="font-size: 11px; padding: 3px 8px; color: var(--color-text-tertiary); border-radius: 10px;">pending</span>
+        <span style="font-size: 11px; padding: 3px 8px; color: var(--color-text-tertiary); border-radius: 10px;">all</span>
+      </div>
+      
+      <!-- Expanded form -->
+      <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 12px;">
+        <!-- Title input (auto-focused) -->
+        <input type="text" placeholder="Item title" autofocus style="width: 100%; font-size: 13px; padding: 6px 8px; border: none; border-bottom: 0.5px solid var(--color-border-tertiary); outline: none; background: transparent; margin-bottom: 10px;" value="">
+        
+        <!-- Compact field row 1: Domain + Priority -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+          <div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary); margin-bottom: 3px;">Domain</div>
+            <select style="width: 100%; font-size: 11px; padding: 4px 6px; border: 0.5px solid var(--color-border-tertiary); border-radius: 4px; background: var(--color-background-primary); cursor: pointer;">
+              <option>research</option>
+              <option>work</option>
+              <option>writing</option>
+              <option>personal</option>
+              <option>admin</option>
+              <option>application</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary); margin-bottom: 3px;">Priority</div>
+            <div style="display: flex; gap: 3px;">
+              <span style="flex: 1; text-align: center; font-size: 10px; padding: 4px 0; background: #FCEBEB; color: #501313; border-radius: 4px; font-weight: 500; cursor: pointer; border: 0.5px solid #A32D2D;">P0</span>
+              <span style="flex: 1; text-align: center; font-size: 10px; padding: 4px 0; color: var(--color-text-tertiary); border: 0.5px solid var(--color-border-tertiary); border-radius: 4px; cursor: pointer;">P1</span>
+              <span style="flex: 1; text-align: center; font-size: 10px; padding: 4px 0; color: var(--color-text-tertiary); border: 0.5px solid var(--color-border-tertiary); border-radius: 4px; cursor: pointer;">P2</span>
+              <span style="flex: 1; text-align: center; font-size: 10px; padding: 4px 0; color: var(--color-text-tertiary); border: 0.5px solid var(--color-border-tertiary); border-radius: 4px; cursor: pointer;">P3</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Compact field row 2: Due date -->
+        <div style="margin-bottom: 10px;">
+          <div style="font-size: 10px; color: var(--color-text-tertiary); margin-bottom: 3px;">Due (optional)</div>
+          <input type="date" style="width: 100%; font-size: 11px; padding: 4px 6px; border: 0.5px solid var(--color-border-tertiary); border-radius: 4px; background: var(--color-background-primary);">
+        </div>
+        
+        <!-- Action bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 0.5px solid var(--color-border-tertiary);">
+          <span style="font-size: 10px; color: var(--color-text-tertiary);">Esc to cancel · ⏎ to save</span>
+          <div style="display: flex; gap: 6px;">
+            <span style="font-size: 11px; padding: 4px 10px; color: var(--color-text-tertiary); cursor: pointer;">Cancel</span>
+            <span style="font-size: 11px; padding: 4px 10px; background: var(--color-background-info); color: var(--color-text-info); border-radius: 4px; font-weight: 500; cursor: pointer;">Add</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Existing items still visible below, dimmed -->
+      <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-left: 2px solid #BA7517; border-radius: var(--border-radius-md); padding: 10px 12px; opacity: 0.4;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="background: #FAEEDA; color: #412402; font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 500;">P1</span>
+          <span style="font-size: 10px; color: #A32D2D;">due today</span>
+        </div>
+        <div style="font-size: 12px; line-height: 1.35; font-weight: 500; margin-top: 4px;">Return from Yellowstone roadtrip</div>
+        <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 2px;">personal · active</div>
+      </div>
+    </div>
+  </div>
+  
+</div>

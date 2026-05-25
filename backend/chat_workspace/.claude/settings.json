@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/Users/xiaojinqiu/Documents/Summer 2026/Reggia/backend/chat_workspace/**)",
+      "Bash(curl *localhost*)",
+      "WebSearch",
+      "WebFetch"
+    ]
+  }
+}

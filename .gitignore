@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+reggia.db
+backend/logs/
+backend/chat_workspace/memory/
+nohup.out
+.DS_Store
+*.egg-info/
+dist/

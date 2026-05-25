@@ -1,0 +1,96 @@
+<div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 16px; display: grid; grid-template-columns: 280px 280px; gap: 24px; align-items: start;">
+  
+  <!-- LEFT: Collapsed view -->
+  <div>
+    <div style="font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Default (collapsed)</div>
+    
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <!-- Header with filter pills + add -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 2px; margin-bottom: 4px;">
+        <div style="display: flex; gap: 4px;">
+          <span style="font-size: 11px; padding: 3px 8px; background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); border-radius: 10px; font-weight: 500;">active</span>
+          <span style="font-size: 11px; padding: 3px 8px; color: var(--color-text-tertiary); border-radius: 10px;">pending</span>
+          <span style="font-size: 11px; padding: 3px 8px; color: var(--color-text-tertiary); border-radius: 10px;">all</span>
+        </div>
+        <i class="ti ti-plus" style="font-size: 16px; color: var(--color-text-secondary); cursor: pointer;" aria-hidden="true"></i>
+      </div>
+      
+      <!-- Items -->
+      <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-left: 2px solid #A32D2D; border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; align-items: flex-start; gap: 10px;">
+        <div style="width: 14px; height: 14px; border: 1px solid var(--color-border-secondary); border-radius: 3px; margin-top: 1px; flex-shrink: 0;"></div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+            <span style="background: #FCEBEB; color: #501313; font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 500;">P0</span>
+            <span style="font-size: 10px; color: #A32D2D;">7d</span>
+          </div>
+          <div style="font-size: 12px; line-height: 1.35; font-weight: 500;">Prof. Wen Capstone endorsement</div>
+          <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 2px;">application</div>
+        </div>
+      </div>
+      
+      <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-left: 2px solid #A32D2D; border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; align-items: flex-start; gap: 10px;">
+        <div style="width: 14px; height: 14px; border: 1px solid var(--color-border-secondary); border-radius: 3px; margin-top: 1px; flex-shrink: 0;"></div>
+        <div style="flex: 1; min-width: 0;">
+          <span style="background: #FCEBEB; color: #501313; font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 500;">P0</span>
+          <div style="font-size: 12px; line-height: 1.35; font-weight: 500; margin-top: 4px;">Multilingual value geometry note</div>
+          <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 2px;">research</div>
+        </div>
+      </div>
+      
+      <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-left: 2px solid #BA7517; border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; align-items: flex-start; gap: 10px;">
+        <div style="width: 14px; height: 14px; border: 1px solid var(--color-border-secondary); border-radius: 3px; margin-top: 1px; flex-shrink: 0;"></div>
+        <div style="flex: 1; min-width: 0;">
+          <span style="background: #FAEEDA; color: #412402; font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 500;">P1</span>
+          <div style="font-size: 12px; line-height: 1.35; font-weight: 500; margin-top: 4px;">Grade inquiry email</div>
+          <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 2px;">admin</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- RIGHT: Expanded card -->
+  <div>
+    <div style="font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Expanded (click to edit)</div>
+    
+    <div style="background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); border-left: 2px solid #A32D2D; border-radius: var(--border-radius-md); padding: 12px 14px;">
+      <!-- Title -->
+      <div style="font-size: 13px; font-weight: 500; line-height: 1.4; margin-bottom: 12px;">Prof. Wen Capstone endorsement</div>
+      
+      <!-- Field rows -->
+      <div style="display: grid; grid-template-columns: 70px 1fr; gap: 6px 10px; font-size: 11px; margin-bottom: 12px;">
+        <span style="color: var(--color-text-tertiary);">Status</span>
+        <span><span style="background: #E6F1FB; color: #042C53; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 500;">active</span> <i class="ti ti-chevron-down" style="font-size: 11px; color: var(--color-text-tertiary);" aria-hidden="true"></i></span>
+        
+        <span style="color: var(--color-text-tertiary);">Priority</span>
+        <span><span style="background: #FCEBEB; color: #501313; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 500;">P0</span></span>
+        
+        <span style="color: var(--color-text-tertiary);">Domain</span>
+        <span style="color: var(--color-text-primary);">application</span>
+        
+        <span style="color: var(--color-text-tertiary);">Due</span>
+        <span style="color: #A32D2D; font-weight: 500;">May 31 (7d)</span>
+        
+        <span style="color: var(--color-text-tertiary);">Sensitivity</span>
+        <span style="color: var(--color-text-primary);">🟡 contextual</span>
+      </div>
+      
+      <!-- Notes -->
+      <div style="font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 4px;">Notes</div>
+      <div style="font-size: 11px; line-height: 1.5; color: var(--color-text-primary); background: var(--color-background-secondary); padding: 8px 10px; border-radius: var(--border-radius-md); margin-bottom: 12px;">
+        Hard deadline. Prof. Shen line confirmed closed. Wen is the primary remaining target.
+      </div>
+      
+      <!-- Action bar -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 0.5px solid var(--color-border-tertiary);">
+        <div style="display: flex; gap: 8px;">
+          <span style="font-size: 11px; color: var(--color-text-info); cursor: pointer;">Ask Reggia ↗</span>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <i class="ti ti-trash" style="font-size: 13px; color: var(--color-text-tertiary); cursor: pointer;" aria-hidden="true"></i>
+          <span style="font-size: 11px; color: var(--color-text-tertiary); cursor: pointer;">Collapse</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+</div>

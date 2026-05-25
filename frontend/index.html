@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reggia</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
+<link rel="stylesheet" href="/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+  <!-- LEFT: Sidebar (sessions) -->
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <span class="sidebar-brand">Reggia</span>
+      <button id="btn-new-session" class="btn-new-chat" title="New chat">
+        <i class="ti ti-edit"></i>
+        <span>New chat</span>
+      </button>
+    </div>
+
+    <div id="sidebar-section-label">Chats</div>
+    <div id="session-list"></div>
+  </aside>
+
+  <!-- MIDDLE: Chat pane -->
+  <div id="chat-pane">
+    <div id="chat-header">
+      <span id="chat-title-text" class="chat-title">New chat</span>
+      <select id="chat-model-select" class="chat-model-select"></select>
+    </div>
+
+    <div id="chat-messages"></div>
+
+    <div id="chat-input-bar">
+      <input
+        type="text"
+        id="chat-input"
+        placeholder="Message Reggia..."
+        autocomplete="off"
+      />
+      <button id="btn-stop-chat" class="btn-stop-chat" title="Stop generating" style="display:none">
+        <i class="ti ti-player-stop-filled"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- RIGHT: Reggia panel -->
+  <div id="reggia-panel">
+    <div id="reggia-header">
+      <div class="filter-pills">
+        <span class="filter-pill active" data-filter="active">active</span>
+        <span class="filter-pill" data-filter="pending">pending</span>
+        <span class="filter-pill" data-filter="">all</span>
+      </div>
+      <i class="ti ti-plus" id="btn-add-item" title="New item"></i>
+    </div>
+
+    <div id="reggia-items"></div>
+
+    <div id="reggia-footer">
+      <span id="btn-open-notion">open in Notion <i class="ti ti-external-link"></i></span>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
