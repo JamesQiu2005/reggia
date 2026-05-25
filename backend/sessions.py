@@ -33,6 +33,14 @@ async def list_sessions():
     return db.list_sessions()
 
 
+@router.get("/search")
+async def search_sessions(q: str = ""):
+    query = q.strip()
+    if not query:
+        return []
+    return db.search_sessions(query)
+
+
 @router.get("/{session_id}")
 async def get_session(session_id: str):
     s = db.get_session(session_id)

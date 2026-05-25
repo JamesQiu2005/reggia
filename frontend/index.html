@@ -15,40 +15,93 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <span class="sidebar-brand">Reggia</span>
-      <button id="btn-new-session" class="btn-new-chat" title="New chat">
-        <i class="ti ti-edit"></i>
-        <span>New chat</span>
+      <button id="btn-sidebar-collapse" class="btn-icon" title="Collapse sidebar">
+        <i class="ti ti-layout-sidebar-left-collapse"></i>
       </button>
     </div>
 
-    <div id="sidebar-section-label">Chats</div>
+    <div id="sidebar-actions">
+      <button id="btn-new-session" class="btn-side-action" title="New chat">
+        <i class="ti ti-edit"></i>
+        <span>New chat</span>
+      </button>
+      <div class="sidebar-search-inputwrap">
+        <i class="ti ti-search sidebar-search-icon"></i>
+        <input
+          type="text"
+          id="sidebar-search-input"
+          placeholder="Search chats..."
+          autocomplete="off"
+        />
+        <i class="ti ti-x sidebar-search-clear" id="sidebar-search-clear" title="Clear" style="display:none"></i>
+      </div>
+    </div>
+
+    <div id="sidebar-section-label">Recents</div>
     <div id="session-list"></div>
   </aside>
+
+  <!-- Sidebar collapsed handle (left edge) -->
+  <button id="sidebar-handle" class="rail-handle rail-handle-left" title="Expand sidebar" style="display:none">
+    <i class="ti ti-layout-sidebar-left-expand"></i>
+  </button>
 
   <!-- MIDDLE: Chat pane -->
   <div id="chat-pane">
     <div id="chat-header">
-      <span id="chat-title-text" class="chat-title">New chat</span>
-      <select id="chat-model-select" class="chat-model-select"></select>
+      <div class="chat-header-left">
+        <button id="btn-sidebar-toggle-from-chat" class="btn-icon" title="Toggle sidebar" style="display:none">
+          <i class="ti ti-layout-sidebar-left-expand"></i>
+        </button>
+        <button id="btn-new-chat-from-header" class="btn-icon" title="New chat">
+          <i class="ti ti-edit"></i>
+        </button>
+        <span id="chat-title-text" class="chat-title">New chat</span>
+      </div>
+      <div class="chat-header-right">
+        <button id="btn-reggia-toggle-from-chat" class="btn-icon" title="Toggle Reggia panel" style="display:none">
+          <i class="ti ti-layout-sidebar-right-expand"></i>
+        </button>
+      </div>
     </div>
 
     <div id="chat-messages"></div>
 
     <div id="chat-input-bar">
-      <input
-        type="text"
-        id="chat-input"
-        placeholder="Message Reggia..."
-        autocomplete="off"
-      />
-      <button id="btn-stop-chat" class="btn-stop-chat" title="Stop generating" style="display:none">
-        <i class="ti ti-player-stop-filled"></i>
-      </button>
+      <div class="chat-input-inner">
+        <div class="chat-composer">
+          <textarea
+            id="chat-input"
+            placeholder="Message Reggia..."
+            rows="1"
+            autocomplete="off"
+          ></textarea>
+          <div class="chat-composer-actions">
+            <div class="composer-actions-left">
+              <select id="chat-model-select" class="chat-model-select-inline" title="Model"></select>
+            </div>
+            <div class="composer-actions-right">
+              <button id="btn-send-chat" class="btn-composer-send" title="Send" disabled>
+                <i class="ti ti-arrow-up"></i>
+              </button>
+              <button id="btn-stop-chat" class="btn-composer-stop" title="Stop generating" style="display:none">
+                <i class="ti ti-square-filled"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- RIGHT: Reggia panel -->
   <div id="reggia-panel">
+    <div id="reggia-panel-header">
+      <span class="reggia-panel-title">Active items</span>
+      <button id="btn-reggia-collapse" class="btn-icon" title="Collapse panel">
+        <i class="ti ti-layout-sidebar-right-collapse"></i>
+      </button>
+    </div>
     <div id="reggia-header">
       <div class="filter-pills">
         <span class="filter-pill active" data-filter="active">active</span>
@@ -63,6 +116,25 @@
     <div id="reggia-footer">
       <span id="btn-open-notion">open in Notion <i class="ti ti-external-link"></i></span>
     </div>
+  </div>
+
+  <!-- Reggia collapsed handle (right edge) -->
+  <button id="reggia-handle" class="rail-handle rail-handle-right" title="Expand Reggia panel" style="display:none">
+    <i class="ti ti-layout-sidebar-right-expand"></i>
+  </button>
+</div>
+
+<!-- Session context menu (floating, attached to body) -->
+<div id="session-menu" class="session-menu" style="display:none">
+  <div class="session-menu-item" data-action="star">
+    <i class="ti ti-star"></i><span>Star</span>
+  </div>
+  <div class="session-menu-item" data-action="rename">
+    <i class="ti ti-pencil"></i><span>Rename</span>
+  </div>
+  <div class="session-menu-divider"></div>
+  <div class="session-menu-item session-menu-danger" data-action="delete">
+    <i class="ti ti-trash"></i><span>Delete</span>
   </div>
 </div>
 

@@ -143,6 +143,42 @@ async def get_index():
     return await _fetch_page_text(INDEX_PAGE_ID)
 
 
+@app.post("/reggia/longterm/{domain}")
+async def append_longterm(domain: str, payload: dict):
+    """Append a block to a long-term Notion page."""
+    _check_notion_key()
+    page_id = LONGTERM_PAGES.get(domain)
+    if not page_id:
+        raise HTTPException(status_code=404, detail=f"unknown domain: {domain}")
+
+    content = payload.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required")
+
+    block_type = payload.get("type", "paragraph")
+    if block_type not in ("paragraph", "bulleted_list_item", "heading_3", "numbered_list_item"):
+        raise HTTPException(status_code=400, detail=f"unsupported block type: {block_type}")
+
+    block = {
+        "object": "block",
+        "type": block_type,
+        block_type: {
+            "rich_text": [{"type": "text", "text": {"content": content}}]
+        },
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.patch(
+            f"https://api.notion.com/v1/blocks/{page_id}/children",
+            headers=NOTION_HEADERS,
+            json={"children": [block]},
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Notion API error: {resp.text}")
+
+    return {"ok": True, "domain": domain, "page_id": page_id}
+
+
 # ---------------------------------------------------------------------------
 # Reggia Items CRUD
 # ---------------------------------------------------------------------------

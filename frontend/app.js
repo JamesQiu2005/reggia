@@ -12,6 +12,14 @@ let allSessions = [];
 let isStreaming = false;
 let abortController = null;
 
+// Search state
+let searchQuery = "";
+let searchDebounce = null;
+
+// Collapse state (persisted in localStorage)
+let sidebarCollapsed = localStorage.getItem("reggia.sidebarCollapsed") === "1";
+let reggiaCollapsed = localStorage.getItem("reggia.reggiaCollapsed") === "1";
+
 // ---------------------------------------------------------------------------
 // Chat
 // ---------------------------------------------------------------------------
@@ -20,11 +28,40 @@ const chatMessages = document.getElementById("chat-messages");
 const chatInput = document.getElementById("chat-input");
 const chatTitle = document.getElementById("chat-title-text");
 const btnStopChat = document.getElementById("btn-stop-chat");
+const btnSendChat = document.getElementById("btn-send-chat");
+
+function autosizeInput() {
+  chatInput.style.height = "auto";
+  const newHeight = Math.min(chatInput.scrollHeight, 200);
+  chatInput.style.height = newHeight + "px";
+}
+
+function updateSendButtonState() {
+  const hasText = chatInput.value.trim().length > 0;
+  btnSendChat.disabled = !hasText || isStreaming;
+}
+
+chatInput.addEventListener("input", () => {
+  autosizeInput();
+  updateSendButtonState();
+});
 
 chatInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.isComposing && chatInput.value.trim() && !chatInput.disabled) {
+  // Enter (without shift, and not during IME composition) sends.
+  // Shift+Enter inserts newline (default textarea behavior).
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
-    sendMessage(chatInput.value.trim());
+    const val = chatInput.value.trim();
+    if (val && !isStreaming) {
+      sendMessage(val);
+    }
+  }
+});
+
+btnSendChat.addEventListener("click", () => {
+  const val = chatInput.value.trim();
+  if (val && !isStreaming) {
+    sendMessage(val);
   }
 });
 
@@ -37,9 +74,11 @@ btnStopChat.addEventListener("click", () => {
 
 async function sendMessage(prompt) {
   chatInput.value = "";
-  chatInput.disabled = true;
-  btnStopChat.style.display = "";
+  autosizeInput();
   isStreaming = true;
+  btnSendChat.style.display = "none";
+  btnStopChat.style.display = "";
+  updateSendButtonState();
   removeEmptyState();
 
   appendMessage("user", prompt);
@@ -118,7 +157,8 @@ async function sendMessage(prompt) {
   abortController = null;
   isStreaming = false;
   btnStopChat.style.display = "none";
-  chatInput.disabled = false;
+  btnSendChat.style.display = "";
+  updateSendButtonState();
   chatInput.focus();
 
   if (state.readPages.length > 0) {
@@ -230,9 +270,24 @@ function appendMessage(role, text) {
     div.className = "msg-assistant";
     div.innerHTML = text || "";
   }
-  chatMessages.appendChild(div);
+  getMessagesInner().appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
   return div;
+}
+
+// Ensure the inner clamp wrapper exists inside #chat-messages and return it.
+function getMessagesInner() {
+  let inner = chatMessages.querySelector(".chat-messages-inner");
+  if (!inner) {
+    inner = document.createElement("div");
+    inner.className = "chat-messages-inner";
+    chatMessages.appendChild(inner);
+  }
+  return inner;
+}
+
+function clearMessages() {
+  chatMessages.innerHTML = "";
 }
 
 function removeEmptyState() {
@@ -241,8 +296,9 @@ function removeEmptyState() {
 }
 
 function showEmptyState() {
-  if (chatMessages.children.length === 0) {
-    chatMessages.innerHTML = '<div class="msg-empty">Ask Reggia anything — it reads your knowledge base to give context-aware answers.</div>';
+  const inner = getMessagesInner();
+  if (inner.children.length === 0) {
+    inner.innerHTML = '<div class="msg-empty">Ask Reggia anything — it reads your knowledge base to give context-aware answers.</div>';
   }
 }
 
@@ -642,58 +698,246 @@ function renderSessionList() {
   const container = document.getElementById("session-list");
   container.innerHTML = "";
 
+  const searching = !!searchQuery.trim();
+
+  // Search mode
+  if (searching) {
+    const q = searchQuery.trim().toLowerCase();
+    const results = (window._searchResults || []).filter(r => r);
+
+    if (results.length === 0) {
+      container.innerHTML = `<div class="session-list-empty">No matches for "${escapeHtml(searchQuery)}"</div>`;
+      return;
+    }
+
+    results.forEach(r => {
+      container.appendChild(buildSessionItem(r, { query: q, withSnippet: !!r.snippet }));
+    });
+    return;
+  }
+
+  // Normal mode — starred first, then the rest (server order preserved within groups)
   if (!allSessions || allSessions.length === 0) {
     container.innerHTML = '<div class="session-list-empty">No chats yet</div>';
     return;
   }
 
-  allSessions.forEach(s => {
-    const item = document.createElement("div");
-    item.className = "session-item" + (s.id === sessionId ? " active" : "");
-    item.dataset.id = s.id;
-    item.title = s.title || "New chat";
-
-    const label = document.createElement("span");
-    label.textContent = s.title || "New chat";
-    item.appendChild(label);
-
-    const del = document.createElement("i");
-    del.className = "ti ti-x session-item-delete";
-    del.title = "Delete chat";
-    item.appendChild(del);
-
-    item.addEventListener("click", (e) => {
-      if (e.target === del) return;
-      if (s.id !== sessionId) switchSession(s.id);
-    });
-
-    del.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (isStreaming && s.id === sessionId) return;
-      await fetch(`/sessions/${s.id}`, { method: "DELETE" });
-      const wasCurrent = (s.id === sessionId);
-      await loadSessions();
-      if (wasCurrent) {
-        sessionId = null;
-        chatMessages.innerHTML = "";
-        if (allSessions.length > 0) {
-          await switchSession(allSessions[0].id);
-        } else {
-          await createNewSession();
-          showEmptyState();
-        }
-      }
-    });
-
-    container.appendChild(item);
+  const starred = allSessions.filter(s => s.starred);
+  const unstarred = allSessions.filter(s => !s.starred);
+  [...starred, ...unstarred].forEach(s => {
+    container.appendChild(buildSessionItem(s));
   });
+}
+
+function buildSessionItem(s, opts = {}) {
+  const { query = "", withSnippet = false } = opts;
+
+  const item = document.createElement("div");
+  item.className = "session-item" + (s.id === sessionId ? " active" : "");
+  item.dataset.id = s.id;
+  item.title = s.title || "New chat";
+
+  const titleLine = document.createElement("span");
+  titleLine.className = "session-item-title-line";
+  const titleText = s.title || "New chat";
+  const starPrefix = s.starred ? `<i class="ti ti-star-filled session-item-star"></i>` : "";
+  titleLine.innerHTML = starPrefix + (query ? highlightMatch(titleText, query) : escapeHtml(titleText));
+  item.appendChild(titleLine);
+
+  if (withSnippet && s.snippet) {
+    const snippet = document.createElement("span");
+    snippet.className = "session-item-snippet";
+    snippet.innerHTML = highlightMatch(s.snippet, query);
+    item.appendChild(snippet);
+  }
+
+  const menuBtn = document.createElement("i");
+  menuBtn.className = "ti ti-dots session-item-menu";
+  menuBtn.title = "More";
+  item.appendChild(menuBtn);
+
+  item.addEventListener("click", (e) => {
+    if (e.target === menuBtn) return;
+    if (item.querySelector(".session-item-rename-input")) return;
+    if (s.id !== sessionId) switchSession(s.id);
+  });
+
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openSessionMenu(s, item, menuBtn);
+  });
+
+  return item;
+}
+
+// Floating session context menu — anchored next to the menu button
+let _openMenuSession = null;
+let _openMenuItemEl = null;
+
+function openSessionMenu(session, itemEl, anchorEl) {
+  _openMenuSession = session;
+  _openMenuItemEl = itemEl;
+  const menu = document.getElementById("session-menu");
+  itemEl.classList.add("menu-open");
+
+  // Update the Star item label
+  const starItem = menu.querySelector('[data-action="star"]');
+  starItem.querySelector("i").className = session.starred ? "ti ti-star-filled" : "ti ti-star";
+  starItem.querySelector("span").textContent = session.starred ? "Unstar" : "Star";
+
+  // Position
+  const rect = anchorEl.getBoundingClientRect();
+  menu.style.display = "block";
+  // measure menu after display
+  const menuRect = menu.getBoundingClientRect();
+  let top = rect.bottom + 4;
+  let left = rect.right - menuRect.width;
+  if (left < 8) left = 8;
+  if (top + menuRect.height > window.innerHeight - 8) {
+    top = rect.top - menuRect.height - 4;
+  }
+  menu.style.top = top + "px";
+  menu.style.left = left + "px";
+}
+
+function closeSessionMenu() {
+  const menu = document.getElementById("session-menu");
+  menu.style.display = "none";
+  if (_openMenuItemEl) {
+    _openMenuItemEl.classList.remove("menu-open");
+  }
+  _openMenuSession = null;
+  _openMenuItemEl = null;
+}
+
+async function toggleStarSession(s) {
+  const newVal = !s.starred;
+  // optimistic update so the UI reorders immediately
+  s.starred = newVal;
+  renderSessionList();
+  try {
+    await fetch(`/sessions/${s.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ starred: newVal }),
+    });
+  } catch (e) {
+    // ignore — server-driven refresh on next load
+  }
+  loadSessions();
+}
+
+function beginRenameSession(s, itemEl) {
+  const titleLine = itemEl.querySelector(".session-item-title-line");
+  if (!titleLine) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "session-item-rename-input";
+  input.value = s.title || "";
+  input.maxLength = 200;
+  // hide title and menu while editing
+  titleLine.style.display = "none";
+  const menuBtn = itemEl.querySelector(".session-item-menu");
+  if (menuBtn) menuBtn.style.display = "none";
+  itemEl.insertBefore(input, itemEl.firstChild);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const commit = async () => {
+    if (done) return;
+    done = true;
+    const newTitle = input.value.trim();
+    if (newTitle && newTitle !== s.title) {
+      s.title = newTitle;
+      try {
+        await fetch(`/sessions/${s.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        });
+      } catch (e) { /* ignore */ }
+      if (s.id === sessionId) chatTitle.textContent = newTitle;
+    }
+    loadSessions();
+  };
+  const cancel = () => {
+    if (done) return;
+    done = true;
+    renderSessionList();
+  };
+
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); input.blur(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  });
+}
+
+async function deleteSessionConfirmed(s) {
+  if (isStreaming && s.id === sessionId) return;
+  await fetch(`/sessions/${s.id}`, { method: "DELETE" });
+  const wasCurrent = (s.id === sessionId);
+  await loadSessions();
+  if (searchQuery.trim()) await runSearch(searchQuery);
+  if (wasCurrent) {
+    sessionId = null;
+    clearMessages();
+    if (allSessions.length > 0) {
+      await switchSession(allSessions[0].id);
+    } else {
+      await createNewSession();
+      showEmptyState();
+    }
+  }
+}
+
+// Highlight matches in a string (case-insensitive). Returns safe HTML.
+function highlightMatch(text, q) {
+  if (!text || !q) return escapeHtml(text || "");
+  const safe = escapeHtml(text);
+  const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(escapedQ, "gi");
+  return safe.replace(re, m => `<mark>${m}</mark>`);
+}
+
+// Search sessions by query. Tries backend /sessions/search first; if it 404s
+// or fails, falls back to client-side title-only search over allSessions.
+async function runSearch(q) {
+  const query = (q || "").trim();
+  if (!query) {
+    window._searchResults = [];
+    renderSessionList();
+    return;
+  }
+
+  // Try backend search endpoint
+  try {
+    const resp = await fetch(`/sessions/search?q=${encodeURIComponent(query)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      // Expect: [{ id, title, snippet }, ...]
+      window._searchResults = Array.isArray(data) ? data : (data.results || []);
+      renderSessionList();
+      return;
+    }
+  } catch (e) {
+    // fall through to client-side
+  }
+
+  // Client-side fallback: title only
+  const lower = query.toLowerCase();
+  window._searchResults = (allSessions || [])
+    .filter(s => (s.title || "").toLowerCase().includes(lower))
+    .map(s => ({ id: s.id, title: s.title, snippet: null }));
+  renderSessionList();
 }
 
 async function switchSession(id) {
   if (id === sessionId) return;
   if (isStreaming) return; // don't swap mid-stream
   sessionId = id;
-  chatMessages.innerHTML = "";
+  clearMessages();
   try {
     const resp = await fetch(`/sessions/${id}`);
     if (resp.ok) {
@@ -739,7 +983,7 @@ async function init() {
         currentModel = select.value;
         // Switching model = new session (fresh CC subprocess with new model)
         await createNewSession();
-        chatMessages.innerHTML = "";
+        clearMessages();
         showEmptyState();
       });
     }
@@ -750,9 +994,132 @@ async function init() {
   document.getElementById("btn-new-session").addEventListener("click", async () => {
     if (isStreaming) return;
     await createNewSession();
-    chatMessages.innerHTML = "";
+    clearMessages();
     showEmptyState();
+    chatInput.focus();
   });
+
+  // Chat header buttons
+  document.getElementById("btn-new-chat-from-header").addEventListener("click", async () => {
+    if (isStreaming) return;
+    await createNewSession();
+    clearMessages();
+    showEmptyState();
+    chatInput.focus();
+  });
+
+  // Search (always-visible input)
+  const searchInput = document.getElementById("sidebar-search-input");
+  const searchClear = document.getElementById("sidebar-search-clear");
+
+  function clearSearch() {
+    searchQuery = "";
+    searchInput.value = "";
+    searchClear.style.display = "none";
+    window._searchResults = [];
+    renderSessionList();
+  }
+
+  searchClear.addEventListener("click", () => {
+    clearSearch();
+    searchInput.focus();
+  });
+
+  searchInput.addEventListener("input", () => {
+    searchQuery = searchInput.value;
+    searchClear.style.display = searchQuery ? "" : "none";
+    if (searchDebounce) clearTimeout(searchDebounce);
+    if (!searchQuery.trim()) {
+      window._searchResults = [];
+      renderSessionList();
+      return;
+    }
+    searchDebounce = setTimeout(() => runSearch(searchQuery), 180);
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      clearSearch();
+      searchInput.blur();
+    }
+  });
+
+  // Collapse / expand sidebar + reggia panel
+  const appEl = document.getElementById("app");
+  const sidebarHandle = document.getElementById("sidebar-handle");
+  const reggiaHandle = document.getElementById("reggia-handle");
+  const btnSidebarToggleFromChat = document.getElementById("btn-sidebar-toggle-from-chat");
+  const btnReggiaToggleFromChat = document.getElementById("btn-reggia-toggle-from-chat");
+
+  function applyCollapseState() {
+    appEl.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+    appEl.classList.toggle("reggia-collapsed", reggiaCollapsed);
+    sidebarHandle.style.display = sidebarCollapsed ? "" : "none";
+    reggiaHandle.style.display = reggiaCollapsed ? "" : "none";
+    btnSidebarToggleFromChat.style.display = sidebarCollapsed ? "" : "none";
+    btnReggiaToggleFromChat.style.display = reggiaCollapsed ? "" : "none";
+    localStorage.setItem("reggia.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
+    localStorage.setItem("reggia.reggiaCollapsed", reggiaCollapsed ? "1" : "0");
+  }
+
+  document.getElementById("btn-sidebar-collapse").addEventListener("click", () => {
+    sidebarCollapsed = true; applyCollapseState();
+  });
+  sidebarHandle.addEventListener("click", () => {
+    sidebarCollapsed = false; applyCollapseState();
+  });
+  btnSidebarToggleFromChat.addEventListener("click", () => {
+    sidebarCollapsed = false; applyCollapseState();
+  });
+
+  document.getElementById("btn-reggia-collapse").addEventListener("click", () => {
+    reggiaCollapsed = true; applyCollapseState();
+  });
+  reggiaHandle.addEventListener("click", () => {
+    reggiaCollapsed = false; applyCollapseState();
+  });
+  btnReggiaToggleFromChat.addEventListener("click", () => {
+    reggiaCollapsed = false; applyCollapseState();
+  });
+
+  applyCollapseState();
+
+  // Session context menu — wire up global handlers
+  const sessionMenu = document.getElementById("session-menu");
+  sessionMenu.querySelectorAll(".session-menu-item").forEach(it => {
+    it.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const action = it.dataset.action;
+      const s = _openMenuSession;
+      const itemEl = _openMenuItemEl;
+      closeSessionMenu();
+      if (!s) return;
+      if (action === "star") {
+        await toggleStarSession(s);
+      } else if (action === "rename") {
+        if (itemEl) beginRenameSession(s, itemEl);
+      } else if (action === "delete") {
+        await deleteSessionConfirmed(s);
+      }
+    });
+  });
+
+  // Close menu on outside click / Escape
+  document.addEventListener("click", (e) => {
+    if (sessionMenu.style.display === "none") return;
+    if (e.target.closest("#session-menu") || e.target.closest(".session-item-menu")) return;
+    closeSessionMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && sessionMenu.style.display !== "none") {
+      closeSessionMenu();
+    }
+  });
+
+  // Initialize composer state
+  autosizeInput();
+  updateSendButtonState();
 
   await loadSessions();
   // If there are existing chats, open the most recent. Only create new on empty DB.

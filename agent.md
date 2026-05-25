@@ -25,7 +25,7 @@ Reggia/
 │   ├── chat_workspace/             # Isolated cwd for frontend chat CC subprocesses
 │   │   ├── CLAUDE.md               # Minimal chat instructions (~200 tokens)
 │   │   └── .claude/
-│   │       ├── settings.json       # Permissions: Read, Bash(curl *), WebSearch, WebFetch
+│   │       ├── settings.json       # Permissions: Read(chat_workspace/**), Bash(curl *localhost*), WebSearch, WebFetch
 │   │       └── skills/
 │   │           └── reggia.md       # Condensed skill: backend endpoints, routing, sensitivity
 │   └── logs/                       # Per-session debug logs (chat_{session_id}.jsonl)
@@ -57,7 +57,7 @@ The project involves **two separate CC contexts**:
 | **Notion access** | Direct Notion API (has key) | Via backend REST endpoints only |
 | **Purpose** | Code editing, architecture, system control | User-facing chat |
 
-The chat CC is spawned per-request via `subprocess.Popen` with:
+The chat CC is spawned per-request via `asyncio.create_subprocess_exec` (async, non-blocking) with:
 ```
 claude --output-format stream-json --verbose --permission-mode acceptEdits
        --model <model> [-resume <cc_session_id>] -p <prompt>
@@ -100,7 +100,7 @@ claude --output-format stream-json --verbose --permission-mode acceptEdits
 User types message
   → app.js: POST /sessions/{id}/chat {prompt, model}
   → sessions.py: load history from SQLite, build cache-optimized prompt
-  → subprocess: claude -p <full_prompt>  [cwd=chat_workspace/]
+  → asyncio.create_subprocess_exec: claude -p <full_prompt>  [cwd=chat_workspace/]
   → CC sends to DeepSeek, streams jsonl back
   → sessions.py: SSE stream to frontend, save assistant msg + cache stats to SQLite
   → app.js: render markdown via marked.js
@@ -121,10 +121,11 @@ Quick add / edit / delete
 
 ### Chat CC accessing Reggia
 ```
-CC detects need for personal context
-  → Bash: curl http://localhost:8000/reggia/items?status=active
-  → main.py: Notion API → return JSON
-  → CC processes, incorporates into response
+CC required to query Reggia on every message
+  → Bash: curl http://localhost:8000/reggia/index (routing guide)
+  → Based on index routing, pull relevant longterm pages + active items
+  → main.py: Notion API → return data
+  → CC incorporates personal context into response
 ```
 
 ## SQLite schema
@@ -152,7 +153,7 @@ The spec (`per_session_control.md`) details this design. Cache stats are logged 
 - **Chat CC runs in isolated workspace** — `chat_workspace/` cwd prevents loading the orchestration CLAUDE.md
 - **Session persistence in SQLite** — survives server restarts; CC subprocesses remain stateless
 - **--resume for session continuity** — second message in a session resumes the CC session (prompt caching + conversation memory)
-- **Permission pre-approval** — chat CC settings.json allows Read, Bash(curl *), WebSearch, WebFetch; `--permission-mode acceptEdits` auto-accepts edits
+- **Permission pre-approval** — chat CC settings.json restricts Read to `chat_workspace/**`, Bash to `curl *localhost*`, plus WebSearch, WebFetch; `--permission-mode acceptEdits` auto-approves allowed tools
 - **Debug logging** — all CC stdout lines written to `backend/logs/chat_{session_id}.jsonl`
 - **IME-safe inputs** — `e.isComposing` check on all Enter-key handlers
 

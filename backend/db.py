@@ -125,6 +125,28 @@ def load_history(session_id: str) -> list[dict]:
     return [{"role": r["role"], "content": r["content"]} for r in rows]
 
 
+def search_sessions(query: str, limit: int = 20) -> list[dict]:
+    """Search sessions by title and message content. Returns sessions with a snippet."""
+    conn = get_conn()
+    like = f"%{query}%"
+    rows = conn.execute(
+        """SELECT DISTINCT s.id, s.title,
+                  (SELECT substr(m2.content, max(0, instr(lower(m2.content), lower(?)) - 40), 120)
+                   FROM messages m2
+                   WHERE m2.session_id = s.id AND lower(m2.content) LIKE lower(?)
+                   LIMIT 1) AS snippet
+           FROM sessions s
+           LEFT JOIN messages m ON m.session_id = s.id
+           WHERE s.archived = 0
+             AND (lower(s.title) LIKE lower(?) OR lower(m.content) LIKE lower(?))
+           ORDER BY s.updated_at DESC
+           LIMIT ?""",
+        (query, like, like, like, limit),
+    ).fetchall()
+    conn.close()
+    return [{"id": r["id"], "title": r["title"], "snippet": r["snippet"]} for r in rows]
+
+
 def get_cache_stats(days: int = 7) -> dict:
     conn = get_conn()
     cutoff = int((time.time() - days * 86400) * 1000)

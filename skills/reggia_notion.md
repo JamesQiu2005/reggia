@@ -59,3 +59,10 @@ Sort and prioritize in code, not in the prompt.
 - Pure coding / debugging tasks
 - Math or algorithms with no personal context needed
 - The user has already provided all necessary context in the prompt
+
+## Updating long-term pages
+
+The chat CC (via the backend) can append blocks to long-term pages (01-04). The update protocol:
+- Confirm-first: CC proposes the update, user approves, then CC calls the endpoint
+- Append-only: new blocks are added to the end of the page, never overwriting existing content
+- Backend endpoint: `POST /reggia/longterm/{domain}` with `{"content": "...", "type": "bulleted_list_item"}`
