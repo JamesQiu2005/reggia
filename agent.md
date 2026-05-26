@@ -20,12 +20,16 @@ Reggia/
 ├── .env.example                    # Required env vars template
 │
 ├── backend/
-│   ├── main.py                     # FastAPI app, items CRUD (SQLite), longterm pages (Notion)
+│   ├── main.py                     # FastAPI app, all route registration
 │   ├── config.py                   # Shared config, CC_MODE flag (docker/local)
-│   ├── db.py                       # SQLite schema (sessions, messages, items), CRUD helpers
+│   ├── db.py                       # SQLite: sessions, messages, items — schema + CRUD
+│   ├── longterm_db.py              # SQLite: long-term memory cache + block passthrough store
+│   ├── sync.py                     # Notion sync: pull, push, append, resolve
+│   ├── notion_markdown.py          # Bidirectional Notion blocks <-> Markdown converter
 │   ├── prompts.py                  # Cache-optimized prompt builder, title prompt
 │   ├── sessions.py                 # /sessions CRUD, /sessions/{id}/chat, Docker exec wrapper
 │   ├── chat_config.json            # Model list + defaults (deepseek-v4-pro[1m], deepseek-v4-flash)
+│   ├── test_headless_chat.py       # Integration test for chat CC
 │   ├── chat_workspace/             # Mounted into Docker container as /workspace
 │   │   ├── CLAUDE.md               # Chat persona + Reggia query instructions
 │   │   └── .claude/
@@ -34,7 +38,8 @@ Reggia/
 │   │           └── reggia.md       # Condensed skill: backend endpoints, routing, sensitivity
 │   ├── databases/                  # SQLite files (WAL mode)
 │   │   ├── reggia_session.db       # Sessions + messages
-│   │   └── reggia_items.db         # Active items (local, not Notion)
+│   │   ├── reggia_items.db         # Active items (local, not Notion)
+│   │   └── reggia_longterm.db      # Long-term memory cache + block passthrough
 │   ├── logs/                       # Per-session debug logs (chat_{session_id}.jsonl)
 │   └── .env                        # NOTION_API_KEY + DEEPSEEK_API_KEY (gitignored)
 │
@@ -89,6 +94,7 @@ The `CC_MODE` env var controls the subprocess wrapper:
 | `DELETE /sessions/{id}` | Soft delete (archive) |
 | `POST /sessions/{id}/chat` | Send message, SSE stream response from Docker CC |
 | `POST /sessions/{id}/title` | Manually rename session |
+| `GET /sessions/stats/cache` | Aggregate cache hit rate (last 7 days) |
 | `GET /chat/config` | Model list + default |
 | `GET /chat/logs` | List debug log files |
 | `GET /chat/logs/{session_id}` | Read session debug log (last 200 lines) |
@@ -101,12 +107,20 @@ The `CC_MODE` env var controls the subprocess wrapper:
 | `PATCH /reggia/items/{id}` | Update any field (name, domain, priority, status, sensitivity, due_date, notes) |
 | `DELETE /reggia/items/{id}` | Soft delete (status=dropped) or `?hard=true` to archive |
 
-### Reggia long-term pages (Notion proxy)
+### Reggia long-term pages (Notion proxy, SQLite-cached)
 | Endpoint | Description |
 |---|---|
 | `GET /reggia/index` | 00 Index & Query Guide (plain text) |
 | `GET /reggia/longterm/{domain}` | Read long-term page (domain ∈ {work, research, intellectual, personal}) |
 | `POST /reggia/longterm/{domain}` | Append a block to a long-term page (chat CC updates long-term memory) |
+
+### Sync control
+| Endpoint | Description |
+|---|---|
+| `GET /reggia/sync/status` | Sync state for all domains |
+| `POST /reggia/sync/pull` | Pull all domains from Notion into local SQLite |
+| `POST /reggia/sync/push` | Push local-dirty domains to Notion |
+| `POST /reggia/sync/resolve` | Resolve a conflict (body: `{domain, winner: "local"|"notion"}`) |
 
 ## Data flow
 
@@ -139,13 +153,14 @@ Quick add / edit / delete
 CC (in Docker) required to query Reggia on every message
   → Bash: curl http://host.docker.internal:8000/reggia/index (routing guide)
   → Based on index routing, pull relevant longterm pages + active items
-  → main.py: SQLite query or Notion API → return data
+  → main.py: serves longterm from local SQLite cache (fast, ~5 ms, works offline)
+    or queries items from reggia_items.db → return data
   → CC incorporates personal context into response
 ```
 
 ## SQLite schema
 
-Three tables across two databases (WAL mode):
+Four tables across three databases (WAL mode):
 
 **reggia_session.db**:
 - **sessions**: `id`, `title`, `created_at`, `updated_at`, `archived`
@@ -153,6 +168,10 @@ Three tables across two databases (WAL mode):
 
 **reggia_items.db**:
 - **items**: `id`, `name`, `domain`, `priority`, `status`, `sensitivity`, `notes`, `due_date`, `created_at`, `archived`
+
+**reggia_longterm.db**:
+- **long_term_memory**: `domain`, `notion_page_id`, `title`, `content_md`, `notion_pending_md`, `notion_last_edited`, `local_modified_at`, `synced_at`, `sync_state` (clean / local_dirty / conflict)
+- **block_passthrough**: `domain`, `marker_id`, `raw_json` — stores unsupported Notion blocks for round-trip fidelity
 
 Session titles are auto-generated from the first message via a lightweight CC call.
 
@@ -171,9 +190,10 @@ The spec (`per_session_control.md`) details this design. Cache stats are logged 
 - **Backend is the single Notion gateway** — neither the frontend nor the chat CC has the Notion API key
 - **Chat CC runs in Docker** — `docker exec` with container name `reggia-cc`; true filesystem isolation via container boundary, not just permission config
 - **DeepSeek direct** — container uses `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` to bypass the Anthropic API middleman; OAuth not needed
-- **Local SQLite for items** — active items migrated from Notion database to local SQLite (`reggia_items.db`); Notion still used for long-term pages only
+- **Local SQLite for items + long-term cache** — active items in `reggia_items.db`; long-term pages cached in `reggia_longterm.db` with two-way Notion sync (pull on boot, push on append, conflict detection)
+- **Notion Markdown round-trip** — `notion_markdown.py` converts Notion blocks ↔ Markdown bidirectionally; unsupported block types passthrough via marker comments for fidelity
 - **chat_workspace as volume mount** — `./backend/chat_workspace:/workspace` lets you edit CLAUDE.md and skill files locally; changes take effect instantly, no rebuild
-- **Session persistence in SQLite** — survives server restarts; Docker CC state is container-ephemeral (`--resume` works within a container lifetime)
+- **Session persistence in SQLite** — survives server restarts; Docker CC state is container-ephemeral (`--resume` works within a container lifetime); `sessions_map` dict tracks frontend_session_id → cc_session_id in memory
 - **Permission pre-approval** — chat CC settings.json restricts Read to `/workspace/**`, Bash to `curl *host.docker.internal*`, plus WebSearch, WebFetch; `--permission-mode acceptEdits` auto-approves allowed tools
 - **Debug logging** — all CC stdout lines written to `backend/logs/chat_{session_id}.jsonl`
 - **IME-safe inputs** — `e.isComposing` check on all Enter-key handlers

@@ -46,20 +46,43 @@ Browser (two-pane UI)
 
 ### Backend endpoints
 
+#### Chat & sessions
 | Endpoint | Description |
 |---|---|
 | `GET /sessions` | List non-archived sessions |
 | `GET /sessions/search?q=` | Search sessions by title and message content |
 | `POST /sessions` | Create new session |
+| `GET /sessions/{id}` | Session metadata + full message history |
+| `DELETE /sessions/{id}` | Soft delete (archive) |
 | `POST /sessions/{id}/chat` | Send message, SSE stream response from Docker CC |
+| `POST /sessions/{id}/title` | Manually rename session |
+| `GET /sessions/stats/cache` | Aggregate cache hit rate (last 7 days) |
 | `GET /chat/config` | Model list + default |
+| `GET /chat/logs` | List debug log files |
+| `GET /chat/logs/{session_id}` | Read session debug log (last 200 lines) |
+
+#### Reggia items CRUD (local SQLite)
+| Endpoint | Description |
+|---|---|
+| `GET /reggia/items?status=&domain=` | Query active items with filters |
+| `POST /reggia/items` | Create item |
+| `PATCH /reggia/items/{id}` | Update any field |
+| `DELETE /reggia/items/{id}` | Soft-delete (status=dropped) or `?hard=true` to archive |
+
+#### Reggia long-term pages (Notion proxy, SQLite-cached)
+| Endpoint | Description |
+|---|---|
 | `GET /reggia/index` | Query routing guide |
 | `GET /reggia/longterm/{domain}` | Read long-term page (work, research, intellectual, personal) |
 | `POST /reggia/longterm/{domain}` | Append a block to a long-term page |
-| `GET /reggia/items?status=&domain=` | Query active items from SQLite with filters |
-| `POST /reggia/items` | Create item in local SQLite |
-| `PATCH /reggia/items/{id}` | Update item fields |
-| `DELETE /reggia/items/{id}` | Soft-delete (sets status=dropped) |
+
+#### Sync control
+| Endpoint | Description |
+|---|---|
+| `GET /reggia/sync/status` | Sync state for all domains |
+| `POST /reggia/sync/pull` | Pull all domains from Notion |
+| `POST /reggia/sync/push` | Push local-dirty domains to Notion |
+| `POST /reggia/sync/resolve` | Resolve a conflict (winner: local or notion) |
 
 ## Prerequisites
 
@@ -136,27 +159,34 @@ Reggia/
 ├── start.sh                    # One-command startup
 ├── .env.example                # Required env vars
 ├── backend/
-│   ├── main.py                 # FastAPI app, items CRUD (SQLite), longterm (Notion)
-│   ├── sessions.py             # Session management, Docker exec wrapper, SSE streaming
-│   ├── db.py                   # SQLite schema (sessions, messages, items), CRUD helpers
-│   ├── prompts.py              # Cache-optimized prompt builder
+│   ├── main.py                 # FastAPI app, all route registration
+│   ├── sessions.py             # Session CRUD, chat SSE, Docker exec wrapper
+│   ├── db.py                   # SQLite: sessions, messages, items — schema + CRUD
+│   ├── longterm_db.py          # SQLite: long-term memory cache + passthrough store
+│   ├── sync.py                 # Notion sync: pull, push, append, resolve
+│   ├── notion_markdown.py      # Bidirectional Notion blocks <-> Markdown converter
+│   ├── prompts.py              # Cache-optimized prompt builder, title prompt
 │   ├── config.py               # Shared config, CC_MODE flag
 │   ├── chat_config.json        # Model list (deepseek-v4-pro[1m], deepseek-v4-flash)
+│   ├── test_headless_chat.py   # Integration test for chat CC
 │   ├── chat_workspace/         # Volume-mounted into container as /workspace
 │   │   ├── CLAUDE.md           # Chat persona + tool constraints
 │   │   └── .claude/
 │   │       ├── settings.json   # Restricted permissions
 │   │       └── skills/
 │   │           └── reggia.md   # Endpoint reference for CC
-│   └── databases/              # SQLite files (WAL mode)
-│       ├── reggia_session.db   # Sessions + messages
-│       └── reggia_items.db     # Active items (local)
+│   ├── databases/              # SQLite files (WAL mode)
+│   │   ├── reggia_session.db   # Sessions + messages
+│   │   ├── reggia_items.db     # Active items (local)
+│   │   └── reggia_longterm.db  # Long-term memory cache + block passthrough
+│   └── logs/                   # Per-session debug logs (chat_{session_id}.jsonl)
 ├── frontend/
 │   ├── index.html              # Two-pane layout
 │   ├── app.js                  # Chat SSE, session mgmt, Reggia CRUD
 │   └── styles.css              # All styles
 ├── skills/
 │   └── reggia_notion.md        # Full Notion API reference (for orchestration)
+├── template/                   # UI mockups (reference only)
 └── pyproject.toml
 ```
 
