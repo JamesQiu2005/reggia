@@ -44,6 +44,17 @@
 
     <div id="sidebar-section-label">Recents</div>
     <div id="session-list"></div>
+
+    <button id="sidebar-account" class="sidebar-account" title="Account settings">
+      <div class="account-avatar" id="account-avatar">
+        <i class="ti ti-user"></i>
+      </div>
+      <div class="account-meta">
+        <div class="account-name" id="account-name">Account</div>
+        <div class="account-sub">Settings & API keys</div>
+      </div>
+      <i class="ti ti-chevron-right account-chevron"></i>
+    </button>
   </aside>
 
   <!-- Sidebar collapsed handle (left edge) -->
@@ -99,6 +110,103 @@
     </div>
   </div>
 
+  <!-- MIDDLE (alt): Account settings pane -->
+  <div id="settings-pane" style="display:none">
+    <div id="settings-header">
+      <div class="chat-header-left">
+        <button id="btn-settings-back" class="btn-icon" title="Back to chat">
+          <i class="ti ti-arrow-left"></i>
+        </button>
+        <span class="chat-title">Account</span>
+      </div>
+    </div>
+
+    <div id="settings-scroll">
+      <div class="settings-content">
+        <div class="settings-hero">
+          <div class="settings-hero-avatar" id="settings-hero-avatar">
+            <i class="ti ti-user"></i>
+          </div>
+          <div class="settings-hero-text">
+            <div class="settings-hero-name" id="settings-hero-name">—</div>
+            <div class="settings-hero-sub">Personal Reggia account</div>
+          </div>
+        </div>
+
+        <section class="settings-card">
+          <div class="settings-card-title">Profile</div>
+          <div class="settings-card-sub">How Reggia identifies and addresses you.</div>
+
+          <div class="settings-field">
+            <label class="settings-label">Avatar</label>
+            <div class="avatar-edit-row">
+              <div class="avatar-preview" id="avatar-preview">
+                <i class="ti ti-user"></i>
+              </div>
+              <div class="avatar-edit-actions">
+                <label for="avatar-file-input" class="settings-btn">
+                  <i class="ti ti-upload"></i> Upload image
+                </label>
+                <input type="file" id="avatar-file-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
+                <button id="btn-avatar-remove" class="settings-btn settings-btn-ghost">Remove</button>
+              </div>
+            </div>
+            <div class="settings-hint">PNG, JPG, WEBP, or GIF. Up to 4 MB.</div>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="settings-display-name">Username</label>
+            <input type="text" id="settings-display-name" class="settings-input" placeholder="Your full or display name" maxlength="80" />
+            <div class="settings-hint">Shown next to your avatar in the sidebar.</div>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="settings-user-name">How Reggia should call you</label>
+            <input type="text" id="settings-user-name" class="settings-input" placeholder="e.g. Hanze" maxlength="40" />
+            <div class="settings-hint">Used inside the chat agent's persona file. Updates take effect on the next message.</div>
+          </div>
+
+          <div class="settings-card-actions">
+            <button id="btn-save-profile" class="settings-btn settings-btn-primary">Save profile</button>
+            <span class="settings-status" id="profile-status"></span>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-title">API keys</div>
+          <div class="settings-card-sub">Submitted over POST only — never echoed in URLs or logs. Stored in <code>backend/.env</code>. After changing DeepSeek, restart the <code>reggia-cc</code> container so the new key is picked up: <code>docker compose restart cc</code>.</div>
+
+          <div class="settings-field">
+            <label class="settings-label">DeepSeek API key</label>
+            <div class="key-row">
+              <input type="password" id="settings-deepseek-key" class="settings-input key-input" placeholder="sk-…" autocomplete="off" />
+              <button class="key-toggle" data-field="deepseek_api_key" title="Show or hide" type="button">
+                <i class="ti ti-eye"></i>
+              </button>
+            </div>
+            <div class="settings-hint" id="deepseek-key-hint">—</div>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label">Notion API key</label>
+            <div class="key-row">
+              <input type="password" id="settings-notion-key" class="settings-input key-input" placeholder="ntn_…" autocomplete="off" />
+              <button class="key-toggle" data-field="notion_api_key" title="Show or hide" type="button">
+                <i class="ti ti-eye"></i>
+              </button>
+            </div>
+            <div class="settings-hint" id="notion-key-hint">—</div>
+          </div>
+
+          <div class="settings-card-actions">
+            <button id="btn-save-keys" class="settings-btn settings-btn-primary">Save keys</button>
+            <span class="settings-status" id="keys-status"></span>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
   <!-- RIGHT: Reggia panel -->
   <div id="reggia-panel">
     <div id="reggia-panel-header">
@@ -127,6 +235,73 @@
   <button id="reggia-handle" class="rail-handle rail-handle-right" title="Expand Reggia panel" style="display:none">
     <i class="ti ti-layout-sidebar-right-expand"></i>
   </button>
+</div>
+
+<!-- First-run welcome modal -->
+<div id="welcome-overlay" class="welcome-overlay" style="display:none">
+  <div class="welcome-modal">
+    <div class="welcome-brand">Reggia</div>
+    <div class="welcome-stepper">
+      <span class="welcome-step active" data-step="1">1</span>
+      <span class="welcome-step-bar"></span>
+      <span class="welcome-step" data-step="2">2</span>
+    </div>
+
+    <div class="welcome-step-pane" data-step="1">
+      <h2 class="welcome-title">Welcome.</h2>
+      <p class="welcome-sub">Reggia is a personal chat frontend backed by your own knowledge base. Set up your profile to get started.</p>
+
+      <div class="welcome-avatar-row">
+        <div class="welcome-avatar" id="welcome-avatar">
+          <i class="ti ti-user"></i>
+        </div>
+        <div>
+          <label for="welcome-avatar-input" class="settings-btn">
+            <i class="ti ti-upload"></i> Upload avatar
+          </label>
+          <input type="file" id="welcome-avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
+          <div class="settings-hint">Optional. PNG, JPG, WEBP, GIF (≤ 4 MB).</div>
+        </div>
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label" for="welcome-display-name">Username</label>
+        <input type="text" id="welcome-display-name" class="settings-input" placeholder="Your full or display name" maxlength="80" />
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label" for="welcome-user-name">How Reggia should call you</label>
+        <input type="text" id="welcome-user-name" class="settings-input" placeholder="e.g. Hanze" maxlength="40" />
+      </div>
+
+      <div class="welcome-actions">
+        <button id="welcome-next" class="settings-btn settings-btn-primary">Continue</button>
+      </div>
+    </div>
+
+    <div class="welcome-step-pane" data-step="2" style="display:none">
+      <h2 class="welcome-title">Connect your providers.</h2>
+      <p class="welcome-sub">Reggia needs a DeepSeek key for chat and a Notion key for long-term pages. Keys live only in <code>backend/.env</code> on your machine.</p>
+
+      <div class="settings-field">
+        <label class="settings-label" for="welcome-deepseek">DeepSeek API key</label>
+        <input type="password" id="welcome-deepseek" class="settings-input" placeholder="sk-…" autocomplete="off" />
+        <div class="settings-hint">Get one at <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a>.</div>
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label" for="welcome-notion">Notion API key</label>
+        <input type="password" id="welcome-notion" class="settings-input" placeholder="ntn_…" autocomplete="off" />
+        <div class="settings-hint">Create an integration at <a href="https://www.notion.so/profile/integrations" target="_blank" rel="noopener">notion.so/profile/integrations</a>.</div>
+      </div>
+
+      <div class="welcome-actions">
+        <button id="welcome-back" class="settings-btn settings-btn-ghost">Back</button>
+        <button id="welcome-finish" class="settings-btn settings-btn-primary">Finish setup</button>
+        <span class="settings-status" id="welcome-status"></span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Session context menu (floating, attached to body) -->

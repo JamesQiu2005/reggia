@@ -12,7 +12,7 @@ from . import config, db, prompts
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 sessions_map: dict[str, str] = {}  # frontend_session_id → cc_session_id
 

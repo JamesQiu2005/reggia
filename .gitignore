@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 reggia.db
 backend/logs/
+backend/avatars/
 backend/chat_workspace/memory/
 nohup.out
 .DS_Store

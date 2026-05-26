@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, longterm_db, sessions as sessions_mod, sync
+from . import config, db, longterm_db, sessions as sessions_mod, settings as settings_mod, sync
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -30,6 +30,9 @@ VALID_BLOCK_TYPES = {"paragraph", "bulleted_list_item", "heading_3", "numbered_l
 async def lifespan(app: FastAPI):
     db.init_db()
     longterm_db.init_db()
+    # Materialize CLAUDE.md + skill files from templates so USER_NAME picks up
+    # any change made via /settings between runs.
+    settings_mod.render_chat_workspace()
     # Pull Notion in the background — never block boot on a slow Notion.
     asyncio.create_task(sync.pull_all_background(timeout_s=30))
     yield
@@ -46,6 +49,7 @@ app.add_middleware(
 
 # Session management routes
 app.include_router(sessions_mod.router)
+app.include_router(settings_mod.router)
 
 
 # ---------------------------------------------------------------------------

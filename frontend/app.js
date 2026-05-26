@@ -20,6 +20,9 @@ let searchDebounce = null;
 let sidebarCollapsed = localStorage.getItem("reggia.sidebarCollapsed") === "1";
 let reggiaCollapsed = localStorage.getItem("reggia.reggiaCollapsed") === "1";
 
+// User settings (from GET /settings)
+let userSettings = null;
+
 // ---------------------------------------------------------------------------
 // Chat
 // ---------------------------------------------------------------------------
@@ -1041,8 +1044,17 @@ async function runSearch(q) {
 }
 
 async function switchSession(id) {
-  if (id === sessionId) return;
+  if (id === sessionId) {
+    // Same session but user might be in settings view — fall back to chat.
+    if (document.getElementById("app").classList.contains("show-settings")) {
+      showChatView();
+    }
+    return;
+  }
   if (isStreaming) return; // don't swap mid-stream
+  if (document.getElementById("app").classList.contains("show-settings")) {
+    showChatView();
+  }
   sessionId = id;
   clearMessages();
   try {
@@ -1067,6 +1079,414 @@ async function switchSession(id) {
     showEmptyState();
   }
   renderSessionList();
+}
+
+// ---------------------------------------------------------------------------
+// Account settings — profile, API keys, avatar
+// ---------------------------------------------------------------------------
+
+async function fetchSettings() {
+  try {
+    const resp = await fetch("/settings");
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+function applyAccountToSidebar(s) {
+  const nameEl = document.getElementById("account-name");
+  const avatarEl = document.getElementById("account-avatar");
+  if (!s) {
+    nameEl.textContent = "Account";
+    avatarEl.style.backgroundImage = "";
+    avatarEl.innerHTML = '<i class="ti ti-user"></i>';
+    return;
+  }
+  const label = s.display_name || s.user_name || "Account";
+  nameEl.textContent = label;
+  if (s.avatar_url) {
+    avatarEl.style.backgroundImage = `url(${s.avatar_url})`;
+    avatarEl.innerHTML = "";
+  } else {
+    avatarEl.style.backgroundImage = "";
+    avatarEl.innerHTML = '<i class="ti ti-user"></i>';
+  }
+}
+
+function paintAvatarCircle(el, url) {
+  if (!el) return;
+  if (url) {
+    el.style.backgroundImage = `url(${url})`;
+    el.innerHTML = "";
+  } else {
+    el.style.backgroundImage = "";
+    el.innerHTML = '<i class="ti ti-user"></i>';
+  }
+}
+
+function applySettingsToForm(s) {
+  userSettings = s || userSettings;
+  const heroName = s?.display_name || s?.user_name || "Account";
+  document.getElementById("settings-hero-name").textContent = heroName;
+  paintAvatarCircle(document.getElementById("settings-hero-avatar"), s?.avatar_url);
+  paintAvatarCircle(document.getElementById("avatar-preview"), s?.avatar_url);
+
+  document.getElementById("settings-display-name").value = s?.display_name || "";
+  document.getElementById("settings-user-name").value = s?.user_name || "";
+
+  // Reset key inputs to masked placeholder; do NOT prefill the actual key.
+  const deepseekInput = document.getElementById("settings-deepseek-key");
+  const notionInput = document.getElementById("settings-notion-key");
+  deepseekInput.type = "password";
+  notionInput.type = "password";
+  deepseekInput.value = "";
+  notionInput.value = "";
+  deepseekInput.placeholder = s?.deepseek_api_key_set ? (s.deepseek_api_key_masked || "•••• set ••••") : "sk-…";
+  notionInput.placeholder = s?.notion_api_key_set ? (s.notion_api_key_masked || "•••• set ••••") : "ntn_…";
+
+  document.getElementById("deepseek-key-hint").textContent =
+    s?.deepseek_api_key_set ? "A DeepSeek key is configured. Leave blank to keep it; type a new key to replace." : "Not set yet.";
+  document.getElementById("notion-key-hint").textContent =
+    s?.notion_api_key_set ? "A Notion key is configured. Leave blank to keep it; type a new key to replace." : "Not set yet.";
+
+  // Reset eye icons back to hidden state.
+  document.querySelectorAll(".key-toggle i").forEach(i => { i.className = "ti ti-eye"; });
+}
+
+function showSettingsView() {
+  document.getElementById("app").classList.add("show-settings");
+  document.getElementById("settings-pane").style.display = "flex";
+  // Refresh in case anything changed
+  fetchSettings().then(s => {
+    if (s) {
+      applySettingsToForm(s);
+      applyAccountToSidebar(s);
+    }
+  });
+}
+
+function showChatView() {
+  document.getElementById("app").classList.remove("show-settings");
+  document.getElementById("settings-pane").style.display = "none";
+  chatInput.focus();
+}
+
+function setStatus(elId, text, kind = "") {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("ok", "error");
+  if (kind) el.classList.add(kind);
+}
+
+async function saveProfile() {
+  const display = document.getElementById("settings-display-name").value.trim();
+  const userName = document.getElementById("settings-user-name").value.trim();
+
+  if (!userName) {
+    setStatus("profile-status", "How Reggia calls you can't be empty.", "error");
+    return;
+  }
+
+  const btn = document.getElementById("btn-save-profile");
+  btn.disabled = true;
+  setStatus("profile-status", "Saving…");
+
+  try {
+    const resp = await fetch("/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: display, user_name: userName }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const updated = await resp.json();
+    applySettingsToForm(updated);
+    applyAccountToSidebar(updated);
+    setStatus("profile-status", "Saved.", "ok");
+  } catch (e) {
+    setStatus("profile-status", `Failed: ${e.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => setStatus("profile-status", ""), 2500);
+  }
+}
+
+async function saveKeys() {
+  const deepseek = document.getElementById("settings-deepseek-key").value.trim();
+  const notion = document.getElementById("settings-notion-key").value.trim();
+
+  if (!deepseek && !notion) {
+    setStatus("keys-status", "Enter a new value to change a key.", "error");
+    return;
+  }
+
+  const btn = document.getElementById("btn-save-keys");
+  btn.disabled = true;
+  setStatus("keys-status", "Saving…");
+
+  const body = {};
+  if (deepseek) body.deepseek_api_key = deepseek;
+  if (notion) body.notion_api_key = notion;
+
+  try {
+    const resp = await fetch("/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const updated = await resp.json();
+    applySettingsToForm(updated);
+    setStatus("keys-status", "Saved.", "ok");
+  } catch (e) {
+    setStatus("keys-status", `Failed: ${e.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => setStatus("keys-status", ""), 2500);
+  }
+}
+
+async function toggleKey(field) {
+  const inputId = field === "deepseek_api_key" ? "settings-deepseek-key" : "settings-notion-key";
+  const input = document.getElementById(inputId);
+  const btn = document.querySelector(`.key-toggle[data-field="${field}"]`);
+  const icon = btn.querySelector("i");
+
+  // If user has already typed something, just toggle visibility of THAT.
+  if (input.value) {
+    input.type = input.type === "password" ? "text" : "password";
+    icon.className = input.type === "password" ? "ti ti-eye" : "ti ti-eye-off";
+    return;
+  }
+
+  // Otherwise: if currently hidden, fetch and reveal the stored key.
+  if (input.type === "password") {
+    try {
+      const resp = await fetch("/settings/reveal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field }),
+      });
+      if (!resp.ok) throw new Error("reveal failed");
+      const data = await resp.json();
+      if (!data.value) {
+        // Nothing to reveal.
+        return;
+      }
+      input.type = "text";
+      input.value = data.value;
+      icon.className = "ti ti-eye-off";
+    } catch (e) {
+      // silent
+    }
+  } else {
+    // hide again — also clear so we don't accidentally re-save the stored value.
+    input.type = "password";
+    input.value = "";
+    icon.className = "ti ti-eye";
+  }
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result || "";
+      const idx = result.indexOf(",");
+      resolve(idx >= 0 ? result.slice(idx + 1) : result);
+    };
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadAvatar(file, statusElId) {
+  if (!file) return null;
+  if (file.size > 4 * 1024 * 1024) {
+    if (statusElId) setStatus(statusElId, "Image is too large (max 4 MB).", "error");
+    return null;
+  }
+  try {
+    const data = await readFileAsBase64(file);
+    const resp = await fetch("/settings/avatar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mime: file.type, data }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    return await resp.json();
+  } catch (e) {
+    if (statusElId) setStatus(statusElId, `Upload failed: ${e.message}`, "error");
+    return null;
+  }
+}
+
+async function removeAvatar() {
+  try {
+    const resp = await fetch("/settings/avatar", { method: "DELETE" });
+    if (!resp.ok) throw new Error(await resp.text());
+    return await resp.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+function wireSettingsHandlers() {
+  document.getElementById("sidebar-account").addEventListener("click", () => {
+    showSettingsView();
+  });
+
+  document.getElementById("btn-settings-back").addEventListener("click", () => {
+    showChatView();
+  });
+
+  document.getElementById("btn-save-profile").addEventListener("click", saveProfile);
+  document.getElementById("btn-save-keys").addEventListener("click", saveKeys);
+
+  document.querySelectorAll(".key-toggle").forEach(btn => {
+    btn.addEventListener("click", () => toggleKey(btn.dataset.field));
+  });
+
+  document.getElementById("avatar-file-input").addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const updated = await uploadAvatar(file, "profile-status");
+    if (updated) {
+      applySettingsToForm(updated);
+      applyAccountToSidebar(updated);
+      setStatus("profile-status", "Avatar updated.", "ok");
+      setTimeout(() => setStatus("profile-status", ""), 2500);
+    }
+    e.target.value = ""; // allow re-uploading same file
+  });
+
+  document.getElementById("btn-avatar-remove").addEventListener("click", async () => {
+    const updated = await removeAvatar();
+    if (updated) {
+      applySettingsToForm(updated);
+      applyAccountToSidebar(updated);
+      setStatus("profile-status", "Avatar removed.", "ok");
+      setTimeout(() => setStatus("profile-status", ""), 2500);
+    }
+  });
+
+  // ESC inside settings view = back to chat
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!document.getElementById("app").classList.contains("show-settings")) return;
+    // Don't intercept when an input field is focused so users can clear it.
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
+    showChatView();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// First-run welcome modal
+// ---------------------------------------------------------------------------
+
+function showWelcomeStep(n) {
+  document.querySelectorAll(".welcome-step").forEach(s => {
+    s.classList.toggle("active", Number(s.dataset.step) <= n);
+  });
+  document.querySelectorAll(".welcome-step-pane").forEach(p => {
+    p.style.display = Number(p.dataset.step) === n ? "" : "none";
+  });
+}
+
+function showWelcome() {
+  document.getElementById("welcome-overlay").style.display = "flex";
+  showWelcomeStep(1);
+  // Prefill from current settings if any partial values exist.
+  if (userSettings) {
+    document.getElementById("welcome-display-name").value = userSettings.display_name || "";
+    document.getElementById("welcome-user-name").value = userSettings.user_name || "";
+    paintAvatarCircle(document.getElementById("welcome-avatar"), userSettings.avatar_url);
+  }
+  setTimeout(() => document.getElementById("welcome-user-name").focus(), 60);
+}
+
+function hideWelcome() {
+  document.getElementById("welcome-overlay").style.display = "none";
+}
+
+function wireWelcomeHandlers() {
+  document.getElementById("welcome-avatar-input").addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const updated = await uploadAvatar(file, "welcome-status");
+    if (updated) {
+      userSettings = updated;
+      paintAvatarCircle(document.getElementById("welcome-avatar"), updated.avatar_url);
+      applyAccountToSidebar(updated);
+    }
+    e.target.value = "";
+  });
+
+  document.getElementById("welcome-next").addEventListener("click", async () => {
+    const display = document.getElementById("welcome-display-name").value.trim();
+    const userName = document.getElementById("welcome-user-name").value.trim();
+    if (!userName) {
+      setStatus("welcome-status", "Tell Reggia how to address you.", "error");
+      return;
+    }
+    setStatus("welcome-status", "");
+    // Save profile fields immediately so refresh doesn't lose them.
+    try {
+      const resp = await fetch("/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: display, user_name: userName }),
+      });
+      if (resp.ok) {
+        userSettings = await resp.json();
+        applyAccountToSidebar(userSettings);
+      }
+    } catch (e) {
+      // best-effort — proceed
+    }
+    showWelcomeStep(2);
+    setTimeout(() => document.getElementById("welcome-deepseek").focus(), 60);
+  });
+
+  document.getElementById("welcome-back").addEventListener("click", () => {
+    showWelcomeStep(1);
+  });
+
+  document.getElementById("welcome-finish").addEventListener("click", async () => {
+    const deepseek = document.getElementById("welcome-deepseek").value.trim();
+    const notion = document.getElementById("welcome-notion").value.trim();
+    if (!deepseek || !notion) {
+      setStatus("welcome-status", "Both keys are required to finish setup.", "error");
+      return;
+    }
+    const btn = document.getElementById("welcome-finish");
+    btn.disabled = true;
+    setStatus("welcome-status", "Saving…");
+    try {
+      const resp = await fetch("/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deepseek_api_key: deepseek, notion_api_key: notion }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const updated = await resp.json();
+      userSettings = updated;
+      applySettingsToForm(updated);
+      applyAccountToSidebar(updated);
+      if (updated.needs_onboarding) {
+        setStatus("welcome-status", "Some fields are still missing.", "error");
+        btn.disabled = false;
+        return;
+      }
+      hideWelcome();
+    } catch (e) {
+      setStatus("welcome-status", `Failed: ${e.message}`, "error");
+      btn.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,6 +1517,7 @@ async function init() {
 
   document.getElementById("btn-new-session").addEventListener("click", async () => {
     if (isStreaming) return;
+    showChatView();
     await createNewSession();
     clearMessages();
     showEmptyState();
@@ -1106,6 +1527,7 @@ async function init() {
   // Chat header buttons
   document.getElementById("btn-new-chat-from-header").addEventListener("click", async () => {
     if (isStreaming) return;
+    showChatView();
     await createNewSession();
     clearMessages();
     showEmptyState();
@@ -1224,6 +1646,18 @@ async function init() {
   // Initialize composer state
   autosizeInput();
   updateSendButtonState();
+
+  // Wire settings & welcome handlers before anything that might surface them.
+  wireSettingsHandlers();
+  wireWelcomeHandlers();
+
+  // Load user settings — drives sidebar account chip + welcome gating.
+  userSettings = await fetchSettings();
+  applyAccountToSidebar(userSettings);
+  applySettingsToForm(userSettings);
+  if (userSettings && userSettings.needs_onboarding) {
+    showWelcome();
+  }
 
   await loadSessions();
   // If there are existing chats, open the most recent. Only create new on empty DB.

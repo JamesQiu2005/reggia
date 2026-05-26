@@ -27,6 +27,7 @@ def get_items_conn() -> sqlite3.Connection:
 
 
 def init_db():
+    DB_DIR.mkdir(parents=True, exist_ok=True)
     conn = get_conn()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS sessions (
