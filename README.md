@@ -4,7 +4,7 @@ Personal AI chat frontend backed by a Notion knowledge base and local SQLite. A 
 
 ## Why
 
-LLM web interfaces (ChatGPT, Claude, DeepSeek, Gemini) lose all personal context between sessions. Existing memory tools (Mem0, Zep, Claude memory, MemPalace) try to solve this by having the AI decide what's worth remembering — mining conversations, vector-searching them back later. This works for people who don't want to think about it, but it conflates two fundamentally different kinds of context: stable background (who you are, what you're working on long-term) and volatile state (what's on your plate this week).
+LLM web interfaces (ChatGPT, Claude, DeepSeek, Gemini) lose personal context between sessions. Current web interfaces has vague memory support and is not intelligent enough on when to use the memory. Existing memory tools (Mem0, Zep, Claude memory, MemPalace) try to solve this by having the AI decide what's worth remembering — mining conversations, vector-searching them back later. This works for people who don't want to think about it, but it conflates two fundamentally different kinds of context: stable background (who you are, what you're working on long-term) and volatile state (what's on your plate this week).
 
 Reggia inverts this. You curate the structure manually. Agents read it on demand, by domain, with sensitivity tags. There's no vector store, no embedding pipeline, no AI deciding what matters — because you already know what matters.
 
