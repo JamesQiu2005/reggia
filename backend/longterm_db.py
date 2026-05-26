@@ -34,7 +34,7 @@ def now_iso() -> str:
 
 
 def get_conn() -> sqlite3.Connection:
-    DB_DIR.mkdir(exist_ok=True)
+    DB_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -213,9 +213,9 @@ def resolve_keep_local(domain: str) -> None:
     conn = get_conn()
     conn.execute(
         """UPDATE long_term_memory
-           SET notion_pending_md = NULL, sync_state = 'local_dirty'
+           SET notion_pending_md = NULL, local_modified_at = ?, sync_state = 'local_dirty'
            WHERE domain = ?""",
-        (domain,),
+        (now_iso(), domain),
     )
     conn.commit()
     conn.close()
@@ -226,22 +226,37 @@ def resolve_keep_local(domain: str) -> None:
 # ---------------------------------------------------------------------------
 
 def passthrough_writer(domain: str):
-    """Return a writer closure for a given domain. Replaces any prior set
-    for that domain on first call within a pull, so old markers don't accumulate."""
-    first_call = {"done": False}
+    """Return a writer closure for a given domain. Tracks written marker_ids
+    so the caller can clean up stale ones after a successful pull."""
 
     def write(marker_id: str, block: dict) -> None:
         conn = get_conn()
-        if not first_call["done"]:
-            conn.execute("DELETE FROM block_passthrough WHERE domain = ?", (domain,))
-            first_call["done"] = True
+        write.seen.add(marker_id)
         conn.execute(
             "INSERT OR REPLACE INTO block_passthrough (domain, marker_id, raw_json) VALUES (?, ?, ?)",
             (domain, marker_id, json.dumps(block)),
         )
         conn.commit()
         conn.close()
+
+    write.seen = set()
     return write
+
+
+def cleanup_passthrough(domain: str, keep_marker_ids: set[str]) -> None:
+    """Delete passthrough rows for *domain* whose marker_id is not in *keep_marker_ids*.
+    Call after a successful pull so only stale markers from prior pulls are removed."""
+    conn = get_conn()
+    if not keep_marker_ids:
+        conn.execute("DELETE FROM block_passthrough WHERE domain = ?", (domain,))
+    else:
+        placeholders = ",".join("?" * len(keep_marker_ids))
+        conn.execute(
+            f"DELETE FROM block_passthrough WHERE domain = ? AND marker_id NOT IN ({placeholders})",
+            (domain, *keep_marker_ids),
+        )
+    conn.commit()
+    conn.close()
 
 
 def passthrough_reader(domain: str):

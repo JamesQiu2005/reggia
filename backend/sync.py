@@ -134,6 +134,7 @@ async def pull_one(domain: str) -> dict:
             content_md=new_md,
             notion_last_edited=notion_last_edited or "",
         )
+        longterm_db.cleanup_passthrough(domain, writer.seen)
         return {"domain": domain, "action": "pulled", "detail": f"{len(blocks)} blocks"}
     except httpx.HTTPError as e:
         log.warning("pull %s failed: %s", domain, e)
@@ -147,15 +148,27 @@ async def pull_all() -> list[dict]:
     return results
 
 
-async def pull_all_background(timeout_s: int = 30) -> None:
-    """Fire-and-forget. Logs on completion; never raises."""
-    try:
-        await asyncio.wait_for(pull_all(), timeout=timeout_s)
-        log.info("startup pull complete")
-    except asyncio.TimeoutError:
-        log.warning("startup pull timed out after %ss", timeout_s)
-    except Exception as e:
-        log.warning("startup pull errored: %s", e)
+async def pull_all_background(timeout_s: int = 30, max_retries: int = 3) -> None:
+    """Fire-and-forget with retry. Logs on completion; never raises."""
+    for attempt in range(max_retries):
+        try:
+            await asyncio.wait_for(pull_all(), timeout=timeout_s)
+            log.info("startup pull complete")
+            return
+        except asyncio.TimeoutError:
+            if attempt < max_retries - 1:
+                delay = 5 * (2 ** attempt)
+                log.warning("startup pull attempt %d timed out — retrying in %ds", attempt + 1, delay)
+                await asyncio.sleep(delay)
+            else:
+                log.warning("startup pull timed out after %d attempts", max_retries)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = 5 * (2 ** attempt)
+                log.warning("startup pull attempt %d failed: %s — retrying in %ds", attempt + 1, e, delay)
+                await asyncio.sleep(delay)
+            else:
+                log.warning("startup pull failed after %d attempts: %s", max_retries, e)
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +216,14 @@ async def push_one(domain: str) -> dict:
 
     try:
         async with httpx.AsyncClient(timeout=60) as client:
+            # Safety check: detect external Notion edits before destructive push.
+            page = await _fetch_page_meta(client, page_id)
+            notion_dt = _parse_iso(page.get("last_edited_time"))
+            synced_dt = _parse_iso(row["synced_at"])
+            if notion_dt and synced_dt and notion_dt > synced_dt:
+                return {"domain": domain, "action": "conflict",
+                        "detail": "notion edited externally since last sync — pull to resolve"}
+
             await _delete_all_children(client, page_id)
             # PATCH children in batches of 100 (Notion limit).
             for i in range(0, len(blocks), 100):
