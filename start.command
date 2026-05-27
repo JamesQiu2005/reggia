@@ -3,18 +3,19 @@ set -e
 
 cd "$(dirname "$0")"
 
-# --- Colima (lightweight Docker runtime) ---
-if ! command -v colima &>/dev/null; then
+# --- Docker runtime ---
+# If Docker is already functional (Docker Desktop, OrbStack, etc.), use it as-is.
+# Otherwise install Colima — a lightweight VM that provides the Docker socket.
+if ! docker info &>/dev/null 2>&1; then
   echo ">>> Installing Colima + Docker CLI (one-time setup)..."
   if ! command -v brew &>/dev/null; then
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)"
   fi
   brew install colima docker docker-compose
+  colima start --cpu 1 --memory 1 --disk 10
+  echo ""
 fi
-
-colima start --cpu 1 --memory 1 --disk 10 2>/dev/null || true
-colima status &>/dev/null || { echo "Colima failed to start."; exit 1; }
 
 # --- Docker CC container ---
 if ! docker inspect reggia-cc &>/dev/null 2>&1; then
