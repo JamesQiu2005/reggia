@@ -169,6 +169,7 @@ Reggia/
 │   ├── config.py               # Shared config, CC_MODE flag
 │   ├── chat_config.json        # Model list (deepseek-v4-pro[1m], deepseek-v4-flash)
 │   ├── test_headless_chat.py   # Integration test for chat CC
+├── test_notion_markdown.py  # Unit tests for Notion ↔ Markdown converter
 │   ├── chat_workspace/         # Volume-mounted into container as /workspace
 │   │   ├── CLAUDE.md           # Chat persona + tool constraints
 │   │   └── .claude/

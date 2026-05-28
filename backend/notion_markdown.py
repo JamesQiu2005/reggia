@@ -14,6 +14,7 @@ from typing import Callable, Optional
 SUPPORTED_BLOCK_TYPES = {
     "paragraph", "heading_1", "heading_2", "heading_3",
     "bulleted_list_item", "numbered_list_item", "quote", "code",
+    "table",
 }
 
 PASSTHROUGH_MARKER_RE = re.compile(r"<!--\s*reggia:block:([0-9a-f-]{8,})\s*-->")
@@ -93,6 +94,33 @@ def _block_to_md(block: dict, indent: int, passthrough_writer: PassthroughWriter
         for line in text.split("\n"):
             lines.append(f"{pad}{line}")
         lines.append(f"{pad}```")
+
+    elif btype == "table":
+        table_info = block.get("table", {})
+        has_header = table_info.get("has_column_header", False)
+        children = block.get("_children") or []
+        rows: list[list[str]] = []
+        for child in children:
+            if child.get("type") != "table_row":
+                continue
+            cells = child.get("table_row", {}).get("cells", [])
+            rows.append([_rich_to_md(cell) for cell in cells])
+        if rows:
+            col_count = max(len(r) for r in rows)
+            for r in rows:
+                while len(r) < col_count:
+                    r.append("")
+            if has_header and len(rows) > 1:
+                header = rows[0]
+                body = rows[1:]
+                lines.append(f"{pad}| {' | '.join(header)} |")
+                lines.append(f"{pad}|{'|'.join(' --- ' for _ in range(col_count))}|")
+                for row in body:
+                    lines.append(f"{pad}| {' | '.join(row)} |")
+            else:
+                for row in rows:
+                    lines.append(f"{pad}| {' | '.join(row)} |")
+        return lines  # table handles its own children
 
     else:
         # Unsupported — emit a marker comment and stash the raw block.
