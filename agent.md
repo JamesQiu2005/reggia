@@ -25,11 +25,13 @@ Reggia/
 │   ├── db.py                       # SQLite: sessions, messages, items — schema + CRUD
 │   ├── longterm_db.py              # SQLite: long-term memory cache + block passthrough store
 │   ├── sync.py                     # Notion sync: pull, push, append, resolve
-│   ├── notion_markdown.py          # Bidirectional Notion blocks <-> Markdown converter
+│   ├── notion_markdown.py          # Notion blocks <-> Markdown: paragraphs, headings, lists, quotes, code, tables
+│   ├── test_notion_markdown.py      # Unit tests for the converter (table rendering, inline marks)
 │   ├── prompts.py                  # Cache-optimized prompt builder, title prompt
 │   ├── sessions.py                 # /sessions CRUD, /sessions/{id}/chat, Docker exec wrapper
 │   ├── chat_config.json            # Model list + defaults (deepseek-v4-pro[1m], deepseek-v4-flash)
 │   ├── test_headless_chat.py       # Integration test for chat CC
+│   ├── test_notion_markdown.py      # Unit tests for Notion ↔ Markdown converter
 │   ├── chat_workspace/             # Mounted into Docker container as /workspace
 │   │   ├── CLAUDE.md               # Chat persona + Reggia query instructions
 │   │   └── .claude/
@@ -191,7 +193,7 @@ The spec (`per_session_control.md`) details this design. Cache stats are logged 
 - **Chat CC runs in Docker** — `docker exec` with container name `reggia-cc`; true filesystem isolation via container boundary, not just permission config
 - **DeepSeek direct** — container uses `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` to bypass the Anthropic API middleman; OAuth not needed
 - **Local SQLite for items + long-term cache** — active items in `reggia_items.db`; long-term pages cached in `reggia_longterm.db` with two-way Notion sync (pull on boot, push on append, conflict detection)
-- **Notion Markdown round-trip** — `notion_markdown.py` converts Notion blocks ↔ Markdown bidirectionally; unsupported block types passthrough via marker comments for fidelity
+- **Notion Markdown round-trip** — `notion_markdown.py` converts Notion blocks ↔ Markdown bidirectionally; supported types include paragraphs, headings, lists, quotes, code, and GFM tables; unsupported block types passthrough via marker comments for fidelity
 - **chat_workspace as volume mount** — `./backend/chat_workspace:/workspace` lets you edit CLAUDE.md and skill files locally; changes take effect instantly, no rebuild
 - **Session persistence in SQLite** — survives server restarts; Docker CC state is container-ephemeral (`--resume` works within a container lifetime); `sessions_map` dict tracks frontend_session_id → cc_session_id in memory
 - **Permission pre-approval** — chat CC settings.json restricts Read to `/workspace/**`, Bash to `curl *host.docker.internal*`, plus WebSearch, WebFetch; `--permission-mode acceptEdits` auto-approves allowed tools
