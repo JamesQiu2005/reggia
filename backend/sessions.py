@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -103,10 +104,17 @@ async def session_chat(session_id: str, payload: dict):
     if config.CC_MODE == "docker":
         args = ["docker", "exec", "-i", "reggia-cc"] + args
 
+    # Force unbuffered stdout so streaming events arrive line-by-line.
+    # Without this, the child process may batch output in 4–8 KB blocks
+    # and the frontend gets nothing until the response is complete.
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+
     kwargs = dict(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     if config.CC_MODE != "docker":
         kwargs["cwd"] = str(config.CHAT_WORKSPACE)

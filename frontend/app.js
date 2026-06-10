@@ -88,7 +88,7 @@ async function sendMessage(prompt) {
 
   const assistantDiv = appendMessage("assistant", "");
   assistantDiv.innerHTML = thinkingHtml();
-  const state = { textBuf: "", readPages: [], denials: null, hasContent: false };
+  const state = { textBuf: "", readPages: [], denials: null, hasContent: false, receivedDelta: false };
 
   if (!sessionId) {
     await createNewSession();
@@ -181,19 +181,30 @@ function thinkingHtml() {
   return `<div class="msg-thinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>thinking…</span></div>`;
 }
 
-// state = { textBuf, readPages, denials, hasContent } — mutated in place
+// state = { textBuf, readPages, denials, hasContent, receivedDelta } — mutated in place
 function handleStreamMessage(msg, container, state) {
   const dbg = (...args) => console.log("[SSE]", ...args);
   dbg(`type=${msg.type}`, msg.type === "assistant" ? `content_types=${(msg.message?.content||[]).map(b=>b.type).join(",")}` : "");
 
+  let textChanged = false;
+
   switch (msg.type) {
+    case "content_block_start":
+      // A new content block is starting — reset delta tracking so
+      // multi-turn agent loops don't skip later text blocks.
+      state.receivedDelta = false;
+      break;
+
     case "assistant":
-      if (msg.message?.content) {
+      // Only use full content blocks when we didn't already receive streaming
+      // deltas. Otherwise the final assistant message would double the text.
+      if (!state.receivedDelta && msg.message?.content) {
         for (const block of msg.message.content) {
           if (block.type === "text") {
             const added = block.text.length;
             state.textBuf += block.text;
             dbg(`text +${added}chars, total=${state.textBuf.length}`);
+            textChanged = true;
           }
           if (block.type === "tool_use") {
             dbg(`tool_use: ${block.name}`);
@@ -206,16 +217,22 @@ function handleStreamMessage(msg, container, state) {
           }
         }
       }
+      // msg.delta.text is also possible on assistant messages that arrive
+      // mid-stream; treat them the same as content_block_delta.
       if (msg.delta?.text) {
         state.textBuf += msg.delta.text;
-        dbg(`delta +${msg.delta.text.length}chars`);
+        state.receivedDelta = true;
+        dbg(`delta +${msg.delta.text.length}chars, total=${state.textBuf.length}`);
+        textChanged = true;
       }
       break;
 
     case "content_block_delta":
       if (msg.delta?.text) {
         state.textBuf += msg.delta.text;
-        dbg(`cbd +${msg.delta.text.length}chars`);
+        state.receivedDelta = true;
+        dbg(`cbd +${msg.delta.text.length}chars, total=${state.textBuf.length}`);
+        textChanged = true;
       }
       break;
 
@@ -244,7 +261,11 @@ function handleStreamMessage(msg, container, state) {
       return;
   }
 
-  // Render
+  // Render — skip when nothing visually changed
+  if (!textChanged && !state.denials && state.hasContent) {
+    return;
+  }
+
   let html = "";
   if (state.readPages.length > 0) {
     html += `<div class="msg-read-indicator"><i class="ti ti-tool"></i> reading ${state.readPages.join(", ")}</div>`;
