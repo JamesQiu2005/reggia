@@ -947,6 +947,14 @@ html, body {
   color: var(--color-red-border);
 }
 
+.item-deadline.overdue {
+  color: var(--color-red-text);
+  background: var(--color-red-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
 .item-name {
   font-size: 12px;
   line-height: 1.35;

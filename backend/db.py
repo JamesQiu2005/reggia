@@ -214,6 +214,16 @@ def _item_from_row(row: sqlite3.Row, today: date) -> dict:
     created_date = date.fromisoformat(row["created_at"][:10])
     days_since_created = (today - created_date).days
 
+    # "past due" is a derived state, not a stored status: an item that is still
+    # active but whose due date has already passed. Kept active in storage (and
+    # in the status=active API the agent uses) so nothing silently changes; the
+    # frontend uses this flag to route overdue items to their own view.
+    is_past_due = (
+        days_until_due is not None
+        and days_until_due < 0
+        and row["status"] == "active"
+    )
+
     return {
         "id": row["id"],
         "name": row["name"],
@@ -225,6 +235,7 @@ def _item_from_row(row: sqlite3.Row, today: date) -> dict:
         "due_date": due_date,
         "days_until_due": days_until_due,
         "days_since_created": days_since_created,
+        "is_past_due": is_past_due,
         "url": "",
     }
 

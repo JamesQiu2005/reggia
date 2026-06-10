@@ -10,12 +10,15 @@ if [ -f backend/.env ]; then
   set +a
 fi
 
-echo "=== Building Docker image (if needed) ==="
-docker compose build
-
-echo ""
-echo "=== Starting CC container ==="
-docker compose up -d
+# Try to start the CC (Claude Code) container — skip if Docker is unavailable
+# or the image can't be pulled (e.g. behind a firewall / proxy).
+if command -v docker &>/dev/null && docker info &>/dev/null; then
+  echo "=== Building/starting CC container (Claude Code in Docker) ==="
+  docker compose build 2>&1 || echo "⚠️  docker compose build failed — skipping CC container"
+  docker compose up -d 2>&1 || echo "⚠️  docker compose up failed — skipping CC container"
+else
+  echo "⚠️  Docker not available — skipping CC container"
+fi
 
 echo ""
 echo "=== Starting backend ==="

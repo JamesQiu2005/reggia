@@ -387,12 +387,26 @@ document.getElementById("btn-open-notion").addEventListener("click", () => {
   window.open("https://notion.so", "_blank");
 });
 
+// Prefer the backend's computed flag; fall back to the same signal the
+// overdue badge uses (days_until_due) so the active/past-due split can't
+// disagree with the rendered badge, even if is_past_due is missing/stale.
+function isItemPastDue(i) {
+  if (typeof i.is_past_due === "boolean") return i.is_past_due;
+  return i.status === "active" && i.days_until_due != null && i.days_until_due < 0;
+}
+
 async function loadItems(status) {
   try {
-    const url = status ? `/reggia/items?status=${encodeURIComponent(status)}` : "/reggia/items";
+    // "past due" is a derived view over active items (active + overdue), not a
+    // stored status — fetch active and split client-side so the active tab and
+    // the past-due tab stay mutually exclusive.
+    const apiStatus = status === "past_due" ? "active" : status;
+    const url = apiStatus ? `/reggia/items?status=${encodeURIComponent(apiStatus)}` : "/reggia/items";
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(await resp.text());
     items = await resp.json();
+    if (status === "active") items = items.filter(i => !isItemPastDue(i));
+    else if (status === "past_due") items = items.filter(i => isItemPastDue(i));
     render();
   } catch (err) {
     reggiaItems.innerHTML = `<div class="reggia-loading">Failed to load: ${err.message}</div>`;
@@ -406,7 +420,8 @@ function render() {
   }
 
   if (items.length === 0) {
-    reggiaItems.innerHTML = '<div class="reggia-empty">No items</div>';
+    const msg = currentFilter === "past_due" ? "Nothing past due" : "No items";
+    reggiaItems.innerHTML = `<div class="reggia-empty">${msg}</div>`;
     return;
   }
 
@@ -562,8 +577,11 @@ function renderCollapsed(item) {
   const pillClass = prioClass === "p0" ? "pill-p0" : prioClass === "p1" ? "pill-p1" : "pill-p2";
   const days = item.days_until_due;
   const deadlineHtml = days !== null && days !== undefined
-    ? `<span class="item-deadline">${days <= 0 ? "due today" : `${days}d left`}</span>`
+    ? `<span class="item-deadline${days < 0 ? " overdue" : ""}">${
+        days < 0 ? `${-days}d overdue` : days === 0 ? "due today" : `${days}d left`
+      }</span>`
     : "";
+  const statusLabel = isItemPastDue(item) ? "past due" : (item.status || "");
 
   return `
     <div class="item-card ${prioClass}" data-id="${item.id}">
@@ -572,7 +590,7 @@ function renderCollapsed(item) {
         ${deadlineHtml}
       </div>
       <div class="item-name">${escapeHtml(item.name)}</div>
-      <div class="item-meta">${item.domain || ""} · ${item.status || ""}${item.sensitivity ? ` · ${item.sensitivity}` : ""}</div>
+      <div class="item-meta">${item.domain || ""} · ${statusLabel}${item.sensitivity ? ` · ${item.sensitivity}` : ""}</div>
     </div>`;
 }
 

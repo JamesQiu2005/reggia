@@ -21,12 +21,11 @@ AVATAR_DIR = BASE_DIR / "avatars"
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
 CHAT_WORKSPACE = BASE_DIR / "chat_workspace"
+# Only CLAUDE.md is templated. The `reggia` skill at .claude/skills/reggia.md
+# is a fixed file — its YAML frontmatter must remain stable so Claude Code can
+# auto-discover the skill, and it carries no user-specific content.
 TEMPLATE_TARGETS = [
     (CHAT_WORKSPACE / "CLAUDE.md.template", CHAT_WORKSPACE / "CLAUDE.md"),
-    (
-        CHAT_WORKSPACE / ".claude" / "skills" / "reggia.md.template",
-        CHAT_WORKSPACE / ".claude" / "skills" / "reggia.md",
-    ),
 ]
 
 MANAGED_FIELDS = {

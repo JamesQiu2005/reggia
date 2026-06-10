@@ -26,9 +26,9 @@ def check_settings_json():
     data = json.loads(path.read_text())
     allowed = data.get("permissions", {}).get("allow", [])
     print(f"[check] settings.json allowlist: {allowed}")
-    assert "Read" in allowed, "Missing Read permission"
-    assert any("Bash(curl *localhost*)" in a for a in allowed), "Missing Bash(curl *localhost*) restriction"
-    assert not any("Bash(curl *)" in a and "localhost" not in a for a in allowed), "Bash(curl *) must be scoped to localhost"
+    assert any(a.startswith("Read(") for a in allowed), "Missing Read permission"
+    assert any("Bash(curl *host.docker.internal*)" in a for a in allowed), "Missing Bash(curl *host.docker.internal*) restriction"
+    assert not any("Bash(curl *)" in a and "host.docker.internal" not in a for a in allowed), "Bash(curl *) must be scoped to host.docker.internal"
     assert "Write" not in allowed, "Write should NOT be in allowlist"
     assert "Edit" not in allowed, "Edit should NOT be in allowlist"
     assert "Agent" not in allowed, "Agent should NOT be in allowlist"
@@ -41,8 +41,18 @@ def check_claude_md():
     assert "Tool constraints" in text, "Missing tool constraints section"
     assert "Read" in text, "Missing Read in tool constraints"
     assert "Bash(curl" in text, "Missing Bash(curl) in tool constraints"
-    assert "localhost" in text, "Missing localhost restriction in tool constraints"
+    assert "host.docker.internal" in text, "Missing host.docker.internal restriction in tool constraints"
     print("  ✓ CLAUDE.md has tool constraints")
+
+
+def check_reggia_skill():
+    path = WORKSPACE / ".claude" / "skills" / "reggia.md"
+    text = path.read_text()
+    # Frontmatter is required for Claude Code to auto-discover the skill.
+    assert text.startswith("---\n"), "reggia.md must start with YAML frontmatter"
+    assert "name: reggia" in text, "reggia.md frontmatter must declare name: reggia"
+    assert "description:" in text.split("---", 2)[1], "reggia.md frontmatter must include a description"
+    print("  ✓ reggia skill has frontmatter")
 
 
 def check_backend_alive():
@@ -125,6 +135,7 @@ if __name__ == "__main__":
     print("=== Static checks ===\n")
     check_settings_json()
     check_claude_md()
+    check_reggia_skill()
     check_backend_alive()
     print("\n  All static checks passed ✓")
 

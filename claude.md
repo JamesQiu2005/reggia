@@ -1,12 +1,47 @@
-I was dumb to start the Tauri wrapper without making sure everything works fine. Here's the two things I want you to do today:
-1. Currently The .env is hard-wired with no ability to change in the front end, so I want you to:
-    1. With the current Frontend Add a separate account management page, I want to you to add one account management access page in the front end and place under the left chat session bar, It should show account avatar and account name, and clicking it lead to account setting page that reroutes to account settings page. The account settings page should also feel like the main chat in the middle, but allows you change account settings. See 2.
-    2. The account setting page Does the following: Allows the user to change the DEEPSEEK_API_KEY and NOTION_API_KEY environment variable. Use encrypted transmission method. Show in default "***" and allow the user to see the full and change with one click; The account setting page should allow user to change their avatar by uploading their own, allow user to change their user name, and how Reggia should call the user. This information should be stored in .env as well.
-    3. The CLAUDE.md in /backend/chat_workspace need to be updated to stream to Claude Code in the chatworkspace to make the system more responsive. Basically every Hanze right now in backend/chat_workspace/CLAUDE.md needs to be changed to USER_NAME in .env
+# Reggia
 
-2. Write a fancy looking starting page that asks user to upload their avatar, create their username, and upload DEEPSEEK_API_KEY and NOTION_API_KEY (if these values are None)
+Personal chat frontend + knowledge base. Single-user, local-first.
 
-Constraints:
-1. Reggia is so far only and will only be single user so no need to use Databases to store user information;
-2. Make reference to Anthropic's own frontend user setting design and the initial welcome page, DO NOT CHANGE THE CURRENT COLOR SCHEME OF REGGIA
-3. For this task DO NOT read anything under /desktop folder
+## Architecture
+
+```
+frontend/          Static SPA (vanilla HTML/CSS/JS, no framework)
+  index.html       Chat pane, account settings, welcome modal, Reggia panel
+  app.js           Client-side logic
+  styles.css       Dark theme — no framework
+
+backend/           FastAPI server on :8000
+  main.py          App entry + route mounting
+  settings.py      /settings API: .env management, avatar upload, workspace templating
+  config.py        CC_MODE: "docker" or "local"
+  chat_workspace/  Claude Code agent workspace (mounted into Docker container)
+    CLAUDE.md      Rendered from CLAUDE.md.template via {USER_NAME}
+    .claude/       Skills, settings for the CC agent
+```
+
+## Key pieces already built
+
+| Feature | Location | Status |
+|---|---|---|
+| Account settings page | `frontend/index.html` (sidebar button + settings pane) | ✅ Done |
+| Welcome/onboarding flow | `frontend/index.html` (2-step modal: profile → API keys) | ✅ Done |
+| Settings API (CRUD .env) | `backend/settings.py` | ✅ Done |
+| Avatar upload (base64) | `backend/settings.py` | ✅ Done |
+| API key masking + reveal | `backend/settings.py` + frontend eye-toggle | ✅ Done |
+| Workspace CLAUDE.md templating | `backend/settings.py` → `chat_workspace/CLAUDE.md.template` | ✅ Done |
+| Docker CC container | `Dockerfile` + `docker-compose.yml` | See start.sh |
+
+## Startup
+
+```bash
+./start.sh    # Backend on :8000; tries Docker CC container, skips gracefully on failure
+```
+
+The script tolerates Docker Hub being unreachable (e.g. behind the Great Firewall) — it prints a warning and continues to the backend.
+
+## Chat workspace (backend/chat_workspace)
+
+When `CC_MODE=local` (in `config.py`), the backend spawns Claude Code as a subprocess.
+When `CC_MODE=docker` (default), the backend talks to the `regria-cc` container.
+
+`settings.py::render_chat_workspace()` materialises `CLAUDE.md` and skills from `.template` files, replacing `{USER_NAME}` with the current env value. Called on every boot and whenever the user name changes.
