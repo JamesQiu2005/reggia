@@ -196,11 +196,13 @@ function handleStreamMessage(msg, container, state) {
       break;
 
     case "assistant":
-      // Only use full content blocks when we didn't already receive streaming
-      // deltas. Otherwise the final assistant message would double the text.
-      if (!state.receivedDelta && msg.message?.content) {
+      // Tool-use detection must run regardless of streaming state — the
+      // read-indicator depends on it. Only the *text* is conditional: skip it
+      // when we already streamed this turn's tokens via stream_event deltas,
+      // otherwise the trailing complete message would double the text.
+      if (msg.message?.content) {
         for (const block of msg.message.content) {
-          if (block.type === "text") {
+          if (block.type === "text" && !state.receivedDelta) {
             const added = block.text.length;
             state.textBuf += block.text;
             dbg(`text +${added}chars, total=${state.textBuf.length}`);
@@ -210,7 +212,7 @@ function handleStreamMessage(msg, container, state) {
             dbg(`tool_use: ${block.name}`);
             if (block.name === "Read") {
               const fp = block.input?.file_path || "";
-              if (fp.includes("reggia")) {
+              if (fp.includes("reggia") && !state.readPages.includes(fp)) {
                 state.readPages.push(fp);
               }
             }
@@ -226,6 +228,26 @@ function handleStreamMessage(msg, container, state) {
         textChanged = true;
       }
       break;
+
+    case "stream_event": {
+      // With --include-partial-messages the CLI wraps raw streaming events:
+      //   { type:"stream_event", event:{ type:"content_block_delta",
+      //       delta:{ type:"text_delta", text:"..." } } }
+      // This is the primary streaming path; the cases below handle providers
+      // that emit these events unwrapped at the top level.
+      const ev = msg.event;
+      if (ev?.type === "message_start") {
+        // New assistant turn — re-arm so a turn that doesn't stream text
+        // (e.g. tool-only) still falls back to its complete-message text.
+        state.receivedDelta = false;
+      } else if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
+        state.textBuf += ev.delta.text;
+        state.receivedDelta = true;
+        dbg(`stream_event delta +${ev.delta.text.length}chars, total=${state.textBuf.length}`);
+        textChanged = true;
+      }
+      break;
+    }
 
     case "content_block_delta":
       if (msg.delta?.text) {

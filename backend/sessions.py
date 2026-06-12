@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -92,6 +91,11 @@ async def session_chat(session_id: str, payload: dict):
     args = [
         "claude",
         "--output-format", "stream-json",
+        # Emit token-level deltas (content_block_delta) as they're generated
+        # instead of one complete message per agent step. Without this the
+        # frontend receives whole text blocks at once and can't stream-render.
+        # Only valid together with --output-format stream-json.
+        "--include-partial-messages",
         "--verbose",
         "--permission-mode", "acceptEdits",
         "--model", model,
@@ -104,17 +108,10 @@ async def session_chat(session_id: str, payload: dict):
     if config.CC_MODE == "docker":
         args = ["docker", "exec", "-i", "reggia-cc"] + args
 
-    # Force unbuffered stdout so streaming events arrive line-by-line.
-    # Without this, the child process may batch output in 4–8 KB blocks
-    # and the frontend gets nothing until the response is complete.
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-
     kwargs = dict(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=env,
     )
     if config.CC_MODE != "docker":
         kwargs["cwd"] = str(config.CHAT_WORKSPACE)
@@ -195,17 +192,29 @@ async def cache_stats():
 
 async def _generate_title(session_id: str, first_message: str):
     try:
-        proc = await asyncio.create_subprocess_exec(
+        # Mirror session_chat's transport: in docker mode the DeepSeek env
+        # (ANTHROPIC_BASE_URL/token) only exists inside reggia-cc, so the CLI
+        # must run there too — running it on the host would hit real Anthropic
+        # with no key and fail/hang. cwd only applies to the local subprocess.
+        args = [
             "claude",
             "--output-format", "stream-json",
             "--verbose",
             "--model", config.CHAT_CONFIG["default_model"],
             "-p", prompts.title_prompt(first_message),
+        ]
+        if config.CC_MODE == "docker":
+            args = ["docker", "exec", "-i", "reggia-cc"] + args
+
+        kwargs = dict(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=str(config.CHAT_WORKSPACE),
         )
+        if config.CC_MODE != "docker":
+            kwargs["cwd"] = str(config.CHAT_WORKSPACE)
+
+        proc = await asyncio.create_subprocess_exec(*args, **kwargs)
         if proc.stdin:
             proc.stdin.close()
         title = ""
