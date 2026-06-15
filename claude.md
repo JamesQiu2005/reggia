@@ -2,46 +2,21 @@
 
 Personal chat frontend + knowledge base. Single-user, local-first.
 
-## Architecture
+Read agent.md to understand the code structure and what files are needed to finish the following task. Anything related to ClaudeCode as the backend include the /desktop and /chat_workspace folder is deprecated. Do not read from them
 
-```
-frontend/          Static SPA (vanilla HTML/CSS/JS, no framework)
-  index.html       Chat pane, account settings, welcome modal, Reggia panel
-  app.js           Client-side logic
-  styles.css       Dark theme — no framework
+## Task
 
-backend/           FastAPI server on :8000
-  main.py          App entry + route mounting
-  settings.py      /settings API: .env management, avatar upload, workspace templating
-  config.py        CC_MODE: "docker" or "local"
-  chat_workspace/  Claude Code agent workspace (mounted into Docker container)
-    CLAUDE.md      Rendered from CLAUDE.md.template via {USER_NAME}
-    .claude/       Skills, settings for the CC agent
-```
+### Reggia prompt Engineering
 
-## Key pieces already built
+Read /Users/xiaojinqiu/Documents/Summer 2026/Reggia/reggia-session-context-spec.md to understand what you need to do, if there's a conflict between the markdown file and the actual state, trust the local state first.
 
-| Feature | Location | Status |
-|---|---|---|
-| Account settings page | `frontend/index.html` (sidebar button + settings pane) | ✅ Done |
-| Welcome/onboarding flow | `frontend/index.html` (2-step modal: profile → API keys) | ✅ Done |
-| Settings API (CRUD .env) | `backend/settings.py` | ✅ Done |
-| Avatar upload (base64) | `backend/settings.py` | ✅ Done |
-| API key masking + reveal | `backend/settings.py` + frontend eye-toggle | ✅ Done |
-| Workspace CLAUDE.md templating | `backend/settings.py` → `chat_workspace/CLAUDE.md.template` | ✅ Done |
-| Docker CC container | `Dockerfile` + `docker-compose.yml` | See start.sh |
+### Frontend reroute
 
-## Startup
+(Kimi Should do the job of reading images)
 
-```bash
-./start.sh    # Backend on :8000; tries Docker CC container, skips gracefully on failure
-```
 
-The script tolerates Docker Hub being unreachable (e.g. behind the Great Firewall) — it prints a warning and continues to the backend.
+## Constraint
+1. remember to do static debug first.
+2. Whenever you want to open the browser to do debug let me know and I'll do the visual checking myself, this is faster
 
-## Chat workspace (backend/chat_workspace)
 
-When `CC_MODE=local` (in `config.py`), the backend spawns Claude Code as a subprocess.
-When `CC_MODE=docker` (default), the backend talks to the `regria-cc` container.
-
-`settings.py::render_chat_workspace()` materialises `CLAUDE.md` and skills from `.template` files, replacing `{USER_NAME}` with the current env value. Called on every boot and whenever the user name changes.

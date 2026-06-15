@@ -1,0 +1,8 @@
+build/
+src-tauri/binaries/
+src-tauri/target/
+src-tauri/resources/compose/docker-compose.yml
+src-tauri/resources/chat_workspace_seed/
+node_modules/
+*.log
+.DS_Store

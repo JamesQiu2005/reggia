@@ -1,0 +1,90 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devPath": "../wizard",
+    "distDir": "../wizard"
+  },
+  "package": {
+    "productName": "Reggia",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": true,
+      "shell": {
+        "open": true,
+        "scope": [
+          {
+            "name": "docker",
+            "cmd": "docker",
+            "args": true
+          }
+        ]
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "Productivity",
+      "copyright": "",
+      "deb": { "depends": [] },
+      "resources": [
+        "resources/compose/docker-compose.yml",
+        "resources/chat_workspace_seed/**/*",
+        "binaries/reggia-backend/**/*"
+      ],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "identifier": "com.reggia.desktop",
+      "longDescription": "Personal AI chat with Notion + SQLite memory.",
+      "macOS": {
+        "entitlements": null,
+        "exceptionDomain": "",
+        "frameworks": [],
+        "providerShortName": null,
+        "signingIdentity": null,
+        "minimumSystemVersion": "11.0"
+      },
+      "shortDescription": "Reggia desktop",
+      "targets": ["dmg", "msi", "app"],
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": "",
+        "webviewInstallMode": {
+          "type": "downloadBootstrapper",
+          "silent": true
+        },
+        "wix": {
+          "language": "en-US"
+        }
+      }
+    },
+    "security": {
+      "csp": null
+    },
+    "systemTray": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "resizable": true,
+        "title": "Reggia",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "url": "index.html"
+      }
+    ]
+  }
+}
