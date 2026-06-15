@@ -590,6 +590,37 @@ html, body {
   color: var(--color-text-primary);
 }
 
+/* Web-search toggle pill */
+.composer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 0.5px solid transparent;
+  border-radius: 12px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.composer-toggle i {
+  font-size: 13px;
+}
+
+.composer-toggle:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.composer-toggle.is-active {
+  color: var(--color-text-info);
+  background-color: var(--color-blue-bg);
+  border-color: var(--color-text-info);
+}
+
 /* Send + stop buttons */
 .btn-composer-send,
 .btn-composer-stop {

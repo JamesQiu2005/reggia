@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from . import config, db, prompts
+from . import agent_loop, config, db, prompts
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -85,10 +85,70 @@ async def session_chat(session_id: str, payload: dict):
     history = db.load_history(session_id)
     db.append_message(session_id, "user", prompt)
 
+    # Engine swap: the lightweight in-process DeepSeek loop (default) vs. the
+    # legacy Claude Code container. See config.CHAT_ENGINE.
+    if config.CHAT_ENGINE == "docker":
+        return await _chat_docker(session_id, prompt, model, history)
+
+    web_search = bool(payload.get("web_search", False))
+    return _chat_agent(session_id, prompt, model, history, web_search)
+
+
+def _chat_agent(session_id, prompt, model, history, web_search):
+    """Lightweight engine: stream one turn from the in-process DeepSeek loop
+    (backend/agent_loop.py). No Docker, no Claude Code subprocess.
+
+    agent_loop.run() is a pure SSE generator; here we forward each line to the
+    client and also sniff it to accumulate the assistant text + token usage for
+    persistence.
+    """
+    log_file = LOG_DIR / f"chat_{session_id}.jsonl"
+
+    async def event_stream():
+        full_response = []
+        usage = {}
+
+        with open(log_file, "a") as lf:
+            async for sse_line in agent_loop.run(history, prompt, model, web_search=web_search):
+                lf.write(sse_line)
+                lf.flush()
+                try:
+                    msg = json.loads(sse_line[6:])  # strip the "data: " prefix
+                    mtype = msg.get("type")
+                    if mtype == "text_delta":
+                        full_response.append(msg.get("text", ""))
+                    elif mtype == "result":
+                        u = msg.get("usage") or {}
+                        usage = {
+                            "cache_hit": u.get("prompt_cache_hit_tokens"),
+                            "cache_miss": u.get("prompt_cache_miss_tokens"),
+                            "output": u.get("completion_tokens"),
+                        }
+                except (json.JSONDecodeError, IndexError):
+                    pass
+                yield sse_line
+
+        full_text = "".join(full_response)
+        db.append_message(
+            session_id, "assistant", full_text,
+            cache_hit=usage.get("cache_hit"),
+            cache_miss=usage.get("cache_miss"),
+            output=usage.get("output"),
+        )
+
+        if len(history) == 0 and full_text.strip():
+            asyncio.create_task(_generate_title(session_id, prompt, model))
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+async def _chat_docker(session_id, prompt, model, history):
+    """Legacy engine: stream one turn from the Claude Code container (reggia-cc)."""
     full_prompt = prompts.build_chat_prompt(history, prompt)
     log_file = LOG_DIR / f"chat_{session_id}.jsonl"
 
     args = [
+        "docker", "exec", "-i", "reggia-cc",
         "claude",
         "--output-format", "stream-json",
         # Emit token-level deltas (content_block_delta) as they're generated
@@ -102,21 +162,17 @@ async def session_chat(session_id: str, payload: dict):
         "-p", full_prompt,
     ]
     if session_id in sessions_map:
-        args.insert(4, "--resume")
-        args.insert(5, sessions_map[session_id])
+        # Resume the CC-side session. Flag order is irrelevant to the CLI, so
+        # slot it right after the `claude` token.
+        i = args.index("claude") + 1
+        args[i:i] = ["--resume", sessions_map[session_id]]
 
-    if config.CC_MODE == "docker":
-        args = ["docker", "exec", "-i", "reggia-cc"] + args
-
-    kwargs = dict(
+    proc = await asyncio.create_subprocess_exec(
+        *args,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    if config.CC_MODE != "docker":
-        kwargs["cwd"] = str(config.CHAT_WORKSPACE)
-
-    proc = await asyncio.create_subprocess_exec(*args, **kwargs)
     if proc.stdin:
         proc.stdin.close()
 
@@ -172,7 +228,7 @@ async def session_chat(session_id: str, payload: dict):
         )
 
         if len(history) == 0 and full_text.strip():
-            asyncio.create_task(_generate_title(session_id, prompt))
+            asyncio.create_task(_generate_title(session_id, prompt, model))
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -190,31 +246,33 @@ async def cache_stats():
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def _generate_title(session_id: str, first_message: str):
+async def _generate_title(session_id: str, first_message: str, model: str | None = None):
+    model = model or config.CHAT_CONFIG["default_model"]
     try:
-        # Mirror session_chat's transport: in docker mode the DeepSeek env
-        # (ANTHROPIC_BASE_URL/token) only exists inside reggia-cc, so the CLI
-        # must run there too — running it on the host would hit real Anthropic
-        # with no key and fail/hang. cwd only applies to the local subprocess.
+        # Agent engine: one-shot DeepSeek call, no subprocess.
+        if config.CHAT_ENGINE != "docker":
+            title = await agent_loop.generate_title(first_message, model)
+            if title:
+                db.set_title(session_id, title[:50])
+            return
+
+        # Docker engine: the DeepSeek env (ANTHROPIC_BASE_URL/token) only exists
+        # inside reggia-cc, so the CLI must run there too — running it on the
+        # host would hit real Anthropic with no key and fail/hang.
         args = [
+            "docker", "exec", "-i", "reggia-cc",
             "claude",
             "--output-format", "stream-json",
             "--verbose",
-            "--model", config.CHAT_CONFIG["default_model"],
+            "--model", model,
             "-p", prompts.title_prompt(first_message),
         ]
-        if config.CC_MODE == "docker":
-            args = ["docker", "exec", "-i", "reggia-cc"] + args
-
-        kwargs = dict(
+        proc = await asyncio.create_subprocess_exec(
+            *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        if config.CC_MODE != "docker":
-            kwargs["cwd"] = str(config.CHAT_WORKSPACE)
-
-        proc = await asyncio.create_subprocess_exec(*args, **kwargs)
         if proc.stdin:
             proc.stdin.close()
         title = ""

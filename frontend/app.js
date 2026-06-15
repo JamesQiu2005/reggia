@@ -11,6 +11,7 @@ let currentModel = "";
 let allSessions = [];
 let isStreaming = false;
 let abortController = null;
+let webSearchEnabled = false;
 
 // Search state
 let searchQuery = "";
@@ -32,6 +33,7 @@ const chatInput = document.getElementById("chat-input");
 const chatTitle = document.getElementById("chat-title-text");
 const btnStopChat = document.getElementById("btn-stop-chat");
 const btnSendChat = document.getElementById("btn-send-chat");
+const btnWebSearch = document.getElementById("btn-websearch-toggle");
 
 function autosizeInput() {
   chatInput.style.height = "auto";
@@ -75,6 +77,16 @@ btnStopChat.addEventListener("click", () => {
   }
 });
 
+// Web search toggle (composer). Flips the per-turn flag sent to the agent
+// loop; the actual 博查 search call is a backend stub for now.
+if (btnWebSearch) {
+  btnWebSearch.addEventListener("click", () => {
+    webSearchEnabled = !webSearchEnabled;
+    btnWebSearch.classList.toggle("is-active", webSearchEnabled);
+    btnWebSearch.setAttribute("aria-pressed", webSearchEnabled ? "true" : "false");
+  });
+}
+
 async function sendMessage(prompt) {
   chatInput.value = "";
   autosizeInput();
@@ -102,7 +114,7 @@ async function sendMessage(prompt) {
     const resp = await fetch(`/sessions/${sessionAtSend}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, model: currentModel }),
+      body: JSON.stringify({ prompt, model: currentModel, web_search: webSearchEnabled }),
       signal: abortController.signal,
     });
     console.log("[SSE] fetch response status:", resp.status, "ok:", resp.ok);
@@ -257,6 +269,33 @@ function handleStreamMessage(msg, container, state) {
         textChanged = true;
       }
       break;
+
+    // ---- Native events from the in-process DeepSeek agent loop ----
+    case "text_delta":
+      if (msg.text) {
+        state.textBuf += msg.text;
+        state.receivedDelta = true;
+        dbg(`text_delta +${msg.text.length}chars, total=${state.textBuf.length}`);
+        textChanged = true;
+      }
+      break;
+
+    case "tool_call": {
+      // Surface a lightweight reading indicator, mirroring the CC tool_use path.
+      const labels = {
+        reggia_index: "routing guide",
+        reggia_longterm_index: "long-term memory",
+        reggia_longterm_read: "long-term memory",
+        reggia_items_list: "active items",
+        reggia_item_detail: "active items",
+        web_search: "the web",
+      };
+      const label = labels[msg.name] || msg.name;
+      if (!state.readPages.includes(label)) state.readPages.push(label);
+      dbg(`tool_call: ${msg.name} → ${label}`);
+      textChanged = true;
+      break;
+    }
 
     case "tool_use":
       dbg(`top-level tool_use: ${msg.name}`);

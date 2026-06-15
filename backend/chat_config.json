@@ -1,5 +1,5 @@
 {
-  "models": ["deepseek-v4-pro[1m]", "deepseek-v4-flash"],
-  "default_model": "deepseek-v4-pro[1m]",
+  "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+  "default_model": "deepseek-v4-pro",
   "max_turns": 10
 }
