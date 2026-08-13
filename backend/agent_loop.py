@@ -33,6 +33,9 @@ DEFAULT_MODEL = "deepseek-v4-pro"
 
 MAX_TOOL_ROUNDS = 8  # safety valve — prevent infinite loops
 
+# DeepSeek exposes effort levels rather than an exact reasoning-token budget.
+THINKING_EFFORTS = frozenset({"low", "high", "max"})
+
 # ---------------------------------------------------------------------------
 # System prompt (roughly mirrors chat_workspace/CLAUDE.md.template)
 # ---------------------------------------------------------------------------
@@ -99,6 +102,18 @@ which page to read.
 - agent-readable: use freely
 - contextual: reasoning only, never surface in third-party output
 - private: skip entirely
+
+## Context Fetch Deduplication
+
+Session history 中 assistant 消息末尾可能包含 <ctx/> 标签，
+格式为 <ctx src="page1.md, page2.md"/>，
+表示该轮回答已获取过这些 long-term memory page 的内容。
+
+规则：
+- 如果当前用户请求涉及的信息在历史 <ctx/> 标签中已出现过对应的 page，
+  直接基于当时回答中的相关内容作答，不要重复调用 fetch_memory。
+- 例外：用户明确要求"重新获取"、"刷新"、或"再看一下 xxx"时，重新 fetch。
+- <ctx/> 标签仅用于 fetch_memory 的去重判断，不影响其他工具的使用。
 
 # Updating
 Never silently mutate. Propose changes explicitly and call append/update endpoints
@@ -493,8 +508,15 @@ async def run(
     user_message: str,
     model: str = DEFAULT_MODEL,
     web_search: bool = False,
+    thinking: bool = True,
+    reasoning_effort: str = "high",
 ) -> AsyncGenerator[str, None]:
-    """Run the tool-calling loop. Yields SSE-formatted strings.
+    """Run a ReAct loop and yield SSE-formatted strings.
+
+    Each round follows Reason -> Action -> Observation. A round without an
+    action produces the final answer and ends the turn. In thinking mode,
+    DeepSeek requires the complete ``reasoning_content`` to be echoed in the
+    assistant tool-call message before observations are submitted.
 
     `web_search` toggles whether the web_search tool is offered to the model
     (driven by the composer toggle in the frontend).
@@ -506,6 +528,8 @@ async def run(
 
     SSE event types emitted:
       - {"type": "text_delta", "text": "..."}       streaming text
+      - {"type": "reasoning_delta", "text": "..."}  streaming reasoning
+      - {"type": "react_step", "phase": "..."}      ReAct phase/round
       - {"type": "tool_call", "name": "...", "args": {...}}
       - {"type": "tool_result", "name": "...", "ok": true/false}
       - {"type": "result", "usage": {...}}
@@ -522,7 +546,17 @@ async def run(
         role = msg["role"]
         if role not in ("user", "assistant"):
             continue
-        messages.append({"role": role, "content": msg["content"]})
+        content = msg["content"]
+        if role == "assistant" and msg.get("tool_calls"):
+            try:
+                tc_data = json.loads(msg["tool_calls"]) if isinstance(msg["tool_calls"], str) else msg["tool_calls"]
+            except (json.JSONDecodeError, TypeError):
+                tc_data = None
+            if tc_data:
+                ctx_sources = [tc.get("page") for tc in tc_data if tc.get("page")]
+                if ctx_sources:
+                    content += f'\n<ctx src="{", ".join(ctx_sources)}"/>'
+        messages.append({"role": role, "content": content})
 
     # Append the new user message
     messages.append({"role": "user", "content": user_message})
@@ -531,95 +565,127 @@ async def run(
     # search is opt-in via the composer toggle.
     tools = REGGIA_TOOLS + ([WEB_SEARCH_TOOL] if web_search else [])
 
-    # ---- Tool-calling loop ------------------------------------------------
+    if reasoning_effort not in THINKING_EFFORTS:
+        reasoning_effort = "high"
+
+    # ---- ReAct loop --------------------------------------------------------
     tool_round = 0
+    total_usage: dict[str, int] = {}
 
     async with httpx.AsyncClient(timeout=120) as client:
         while tool_round < MAX_TOOL_ROUNDS:
             tool_round += 1
+            yield _sse("react_step", {"phase": "reason", "round": tool_round})
 
             # Build the API request
             body = {
                 "model": model,
                 "messages": messages,
                 "stream": True,
+                "thinking": {"type": "enabled" if thinking else "disabled"},
             }
+            if thinking:
+                body["reasoning_effort"] = reasoning_effort
             if tools:
                 body["tools"] = tools
                 body["tool_choice"] = "auto"
 
             # ---- Stream from DeepSeek --------------------------------------
             collected_content: list[str] = []
+            collected_reasoning: list[str] = []
             collected_tool_calls: list[dict] = []
             finish_reason: str | None = None
             usage: dict | None = None
+            final_phase_sent = False
 
-            async with client.stream(
-                "POST",
-                CHAT_URL,
-                headers={
-                    "Authorization": f"Bearer {os.environ.get('DEEPSEEK_API_KEY', '')}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            ) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    yield _sse("error", {
-                        "message": f"DeepSeek API error {response.status_code}: {error_text.decode()[:500]}",
-                    })
-                    return
+            try:
+                async with client.stream(
+                    "POST",
+                    CHAT_URL,
+                    headers={
+                        "Authorization": f"Bearer {os.environ.get('DEEPSEEK_API_KEY', '')}",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                ) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        yield _sse("error", {
+                            "message": f"DeepSeek API error {response.status_code}: {error_text.decode()[:500]}",
+                        })
+                        return
 
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
 
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
 
-                    choice = (chunk.get("choices") or [{}])[0]
-                    delta = choice.get("delta") or {}
-                    finish_reason = finish_reason or choice.get("finish_reason")
+                        choice = (chunk.get("choices") or [{}])[0]
+                        delta = choice.get("delta") or {}
+                        finish_reason = finish_reason or choice.get("finish_reason")
 
-                    # --- Text content ---
-                    if delta.get("content"):
-                        text = delta["content"]
-                        collected_content.append(text)
-                        yield _sse("text_delta", {"text": text})
-
-                    # --- Tool calls (streamed as deltas; accumulate) ---
-                    for tc_delta in delta.get("tool_calls") or []:
-                        idx = tc_delta.get("index", 0)
-                        # Grow the accumulator list if needed
-                        while len(collected_tool_calls) <= idx:
-                            collected_tool_calls.append({
-                                "id": "",
-                                "function": {"name": "", "arguments": ""},
+                        # Reason
+                        if delta.get("reasoning_content"):
+                            text = delta["reasoning_content"]
+                            collected_reasoning.append(text)
+                            yield _sse("reasoning_delta", {
+                                "text": text, "round": tool_round,
                             })
-                        tc = collected_tool_calls[idx]
-                        if tc_delta.get("id"):
-                            tc["id"] = tc_delta["id"]
-                        func = tc_delta.get("function") or {}
-                        if func.get("name"):
-                            tc["function"]["name"] += func["name"]
-                        if func.get("arguments"):
-                            tc["function"]["arguments"] += func["arguments"]
 
-                    # --- Usage (usually in last chunk) ---
-                    if chunk.get("usage"):
-                        usage = chunk["usage"]
+                        # Final answer
+                        if delta.get("content"):
+                            if not final_phase_sent:
+                                yield _sse("react_step", {
+                                    "phase": "final", "round": tool_round,
+                                })
+                                final_phase_sent = True
+                            text = delta["content"]
+                            collected_content.append(text)
+                            yield _sse("text_delta", {"text": text})
+
+                        # Action (streamed and accumulated)
+                        for tc_delta in delta.get("tool_calls") or []:
+                            idx = tc_delta.get("index", 0)
+                            while len(collected_tool_calls) <= idx:
+                                collected_tool_calls.append({
+                                    "id": "",
+                                    "function": {"name": "", "arguments": ""},
+                                })
+                            tc = collected_tool_calls[idx]
+                            if tc_delta.get("id"):
+                                tc["id"] = tc_delta["id"]
+                            func = tc_delta.get("function") or {}
+                            if func.get("name"):
+                                tc["function"]["name"] += func["name"]
+                            if func.get("arguments"):
+                                tc["function"]["arguments"] += func["arguments"]
+
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+            except httpx.RequestError as exc:
+                yield _sse("error", {
+                    "message": f"DeepSeek connection error: {exc}",
+                })
+                return
 
             # ---- Process response ------------------------------------------
             full_text = "".join(collected_content)
+            full_reasoning = "".join(collected_reasoning)
+            if usage:
+                for key, value in usage.items():
+                    if isinstance(value, int):
+                        total_usage[key] = total_usage.get(key, 0) + value
 
-            # Case 1: normal tool calls
+            # Action -> Observation
             if finish_reason == "tool_calls" and collected_tool_calls:
-                messages.append({
+                assistant_tool_message = {
                     "role": "assistant",
                     "content": full_text or None,
                     "tool_calls": [
@@ -630,7 +696,10 @@ async def run(
                         }
                         for tc in collected_tool_calls
                     ],
-                })
+                }
+                if full_reasoning:
+                    assistant_tool_message["reasoning_content"] = full_reasoning
+                messages.append(assistant_tool_message)
 
                 for tc in collected_tool_calls:
                     name = tc["function"]["name"]
@@ -639,7 +708,12 @@ async def run(
                     except json.JSONDecodeError:
                         args = {}
 
-                    yield _sse("tool_call", {"name": name, "args": args})
+                    yield _sse("react_step", {
+                        "phase": "action", "round": tool_round, "tool": name,
+                    })
+                    yield _sse("tool_call", {
+                        "name": name, "args": args, "round": tool_round,
+                    })
 
                     executor = TOOL_EXECUTORS.get(name)
                     if executor:
@@ -653,7 +727,13 @@ async def run(
                         result = json.dumps({"error": f"unknown tool: {name}"})
                         ok = False
 
-                    yield _sse("tool_result", {"name": name, "ok": ok})
+                    yield _sse("tool_result", {
+                        "name": name, "ok": ok, "round": tool_round,
+                    })
+                    yield _sse("react_step", {
+                        "phase": "observation", "round": tool_round,
+                        "tool": name, "ok": ok,
+                    })
 
                     messages.append({
                         "role": "tool",
@@ -676,7 +756,13 @@ async def run(
                     name = fc["name"]
                     args = fc.get("arguments", {})
 
-                    yield _sse("tool_call", {"name": name, "args": args, "fallback": True})
+                    yield _sse("react_step", {
+                        "phase": "action", "round": tool_round, "tool": name,
+                    })
+                    yield _sse("tool_call", {
+                        "name": name, "args": args,
+                        "fallback": True, "round": tool_round,
+                    })
 
                     executor = TOOL_EXECUTORS.get(name)
                     if executor:
@@ -690,7 +776,13 @@ async def run(
                         result = json.dumps({"error": f"unknown tool: {name}"})
                         ok = False
 
-                    yield _sse("tool_result", {"name": name, "ok": ok})
+                    yield _sse("tool_result", {
+                        "name": name, "ok": ok, "round": tool_round,
+                    })
+                    yield _sse("react_step", {
+                        "phase": "observation", "round": tool_round,
+                        "tool": name, "ok": ok,
+                    })
 
                     messages.append({
                         "role": "tool",
@@ -710,7 +802,7 @@ async def run(
 
             yield _sse("result", {
                 "finish_reason": finish_reason,
-                "usage": usage,
+                "usage": total_usage,
                 "tool_rounds": tool_round,
             })
             return
@@ -735,6 +827,9 @@ async def generate_title(first_message: str, model: str = DEFAULT_MODEL) -> str:
         "model": model,
         "messages": [{"role": "user", "content": prompts.title_prompt(first_message)}],
         "stream": False,
+        # Session titles are a cheap formatting task; reasoning only adds
+        # latency and cost here, independently of the per-message UI toggle.
+        "thinking": {"type": "disabled"},
     }
     try:
         async with httpx.AsyncClient(timeout=30) as client:

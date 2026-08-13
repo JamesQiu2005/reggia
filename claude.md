@@ -6,17 +6,22 @@ Read agent.md to understand the code structure and what files are needed to fini
 
 ## Task
 
-### Reggia prompt Engineering
+### Markdown Renderer workaround
+Congrats on getting milkdown actually working ! Now the things goes down to enhancing the frontend design
 
-Read /Users/xiaojinqiu/Documents/Summer 2026/Reggia/reggia-session-context-spec.md to understand what you need to do, if there's a conflict between the markdown file and the actual state, trust the local state first.
+1. I do not want floating editing bar since there's literally no need having that, so put formatting into the left of the editing page and make it collapsible, include everything right now in the floating formatting tool;
+2. Align the font and spacing choice with Obsidian more, Always use sans serif fonts;
 
-### Frontend reroute
+### memory file connection workaround
 
-(Kimi Should do the job of reading images)
+Take a look at this, the wikilink solution is never enabled:
 
+Reference Docs/reggia-milkdown-wikilink-spec.md, start from task no.2 but do not include the fetch memory tools update yet since the local memory page is still under testing phase.
+
+The code inside are just pseudo-code, write according the current status of the project to avoid conflict. Current status is ALWAYS the priority.
 
 ## Constraint
 1. remember to do static debug first.
 2. Whenever you want to open the browser to do debug let me know and I'll do the visual checking myself, this is faster
-
+3. Keep the frontend design the same style as current Reggia.
 

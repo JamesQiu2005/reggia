@@ -590,6 +590,28 @@ html, body {
   color: var(--color-text-primary);
 }
 
+.chat-effort-select {
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 5px;
+  cursor: pointer;
+  outline: none;
+}
+
+.chat-effort-select:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.chat-effort-select:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Web-search toggle pill */
 .composer-toggle {
   display: inline-flex;
@@ -752,6 +774,34 @@ html, body {
 
 .msg-thinking .dot:nth-child(2) { animation-delay: 0.15s; }
 .msg-thinking .dot:nth-child(3) { animation-delay: 0.3s; }
+
+.msg-reasoning {
+  margin: 0 0 10px;
+  border-left: 2px solid var(--color-border-secondary);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.msg-reasoning summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 0 3px 10px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.msg-reasoning summary::-webkit-details-marker { display: none; }
+
+.msg-reasoning-content {
+  padding: 6px 10px 2px;
+  max-height: 240px;
+  overflow: auto;
+  opacity: 0.88;
+}
+
+.msg-reasoning-content p:last-child { margin-bottom: 0; }
 
 @keyframes thinking-bounce {
   0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
@@ -1378,23 +1428,29 @@ html, body {
 /* Sidebar account chip                                                */
 /* ------------------------------------------------------------------ */
 
+.sidebar-account-wrap {
+  position: relative;
+  flex-shrink: 0;
+  margin: 6px 10px 10px;
+}
+
 .sidebar-account {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 9px 10px;
-  margin: 6px 10px 10px;
+  width: 100%;
   border: 0.5px solid var(--color-border-tertiary);
   border-radius: 8px;
   background: var(--color-bg-primary);
   cursor: pointer;
   font-family: inherit;
   text-align: left;
-  flex-shrink: 0;
   transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
 }
 
-.sidebar-account:hover {
+.sidebar-account:hover,
+.sidebar-account.submenu-open {
   background: var(--color-bg-secondary);
   border-color: var(--color-border-secondary);
   box-shadow: var(--shadow-card);
@@ -1444,6 +1500,65 @@ html, body {
   flex-shrink: 0;
   font-size: 14px;
   color: var(--color-text-tertiary);
+  transition: transform 0.2s ease;
+}
+
+.account-chevron.is-open {
+  transform: rotate(180deg);
+  color: var(--color-text-primary);
+}
+
+/* ------------------------------------------------------------------ */
+/* Account submenu (floating above account card)                       */
+/* ------------------------------------------------------------------ */
+
+.account-submenu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-primary);
+  border: 0.5px solid var(--color-border-secondary);
+  border-radius: 10px;
+  box-shadow: 0 -2px 16px rgba(15, 23, 42, 0.10), 0 1px 3px rgba(15, 23, 42, 0.06);
+  padding: 4px;
+  z-index: 30;
+  animation: submenu-float-up 0.18s ease-out;
+}
+
+@keyframes submenu-float-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.account-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  transition: background 0.12s;
+}
+
+.account-submenu-item:hover {
+  background: var(--color-bg-secondary);
+}
+
+.account-submenu-item i {
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  width: 18px;
+  text-align: center;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1867,4 +1982,791 @@ html, body {
 
 .welcome-actions .settings-btn-primary {
   margin-left: auto;
+}
+
+/* ------------------------------------------------------------------ */
+/* Memory editor — /memory                                            */
+/* ------------------------------------------------------------------ */
+
+#memory-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background: var(--color-bg-app);
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+
+#memory-header {
+  flex-shrink: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px;
+  background: transparent;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+
+#memory-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  padding: 5px 8px;
+  border-radius: 6px;
+  transition: background 0.12s, color 0.12s;
+}
+
+#memory-back:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+#memory-back i {
+  font-size: 14px;
+}
+
+.memory-brand {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  color: var(--color-text-primary);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.memory-save-status {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  min-width: 52px;
+  text-align: right;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+#memory-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  padding: 14px;
+  gap: 14px;
+}
+
+/* Left formatting bar — replaces Crepe's floating selection toolbar.
+   Desktop-native: normally visible; collapses to a thin rail on demand, and
+   becomes a horizontal strip on narrow viewports (see the media query). */
+#memory-format-bar {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 6px;
+  background: var(--color-bg-primary);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.memory-format-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.memory-format-sep {
+  width: 18px;
+  height: 1px;
+  background: var(--color-border-tertiary);
+}
+
+.memory-format-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 17px;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.memory-format-btn:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.memory-format-btn.is-active {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-info);
+}
+
+#memory-format-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 22px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border: none;
+  border-top: 0.5px solid var(--color-border-tertiary);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#memory-format-collapse:hover { color: var(--color-text-primary); }
+
+/* Collapsed → thin rail: hide all formatting groups, keep just the expand chevron. */
+#memory-format-bar.is-collapsed .memory-format-group,
+#memory-format-bar.is-collapsed .memory-format-sep { display: none; }
+#memory-format-bar.is-collapsed #memory-format-collapse {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Notion-style Crepe popups (slash menu, block handle, inline math editor).
+   Crepe's defaults are chunky (14px padding, 24px icons, 220px min-width, all
+   600-weight) and read as "toy". Tighten spacing, lighten weight, shrink icons,
+   and key colors off Reggia tokens. styles.css loads after milkdown-crepe.css,
+   and #memory-editor adds specificity, so these win.
+   --------------------------------------------------------------------------- */
+#memory-editor .milkdown-slash-menu {
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 10px;
+  box-shadow: var(--shadow-menu);
+  padding: 4px;
+  overflow: hidden;
+}
+#memory-editor .milkdown-slash-menu .tab-group {
+  padding: 4px 6px 0;
+  border-bottom-color: var(--color-border-tertiary);
+}
+#memory-editor .milkdown-slash-menu .tab-group ul { padding: 4px 2px; gap: 4px; }
+#memory-editor .milkdown-slash-menu .tab-group ul li {
+  padding: 4px 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 18px;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+}
+#memory-editor .milkdown-slash-menu .tab-group ul li.selected {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+#memory-editor .milkdown-slash-menu .menu-groups { padding: 4px; max-height: 320px; }
+#memory-editor .milkdown-slash-menu .menu-groups .menu-group h6 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+  padding: 8px 8px 4px;
+  color: var(--color-text-tertiary);
+}
+#memory-editor .milkdown-slash-menu .menu-groups .menu-group li {
+  min-width: 184px;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 6px;
+}
+#memory-editor .milkdown-slash-menu .menu-groups .menu-group li > span {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 18px;
+}
+#memory-editor .milkdown-slash-menu .menu-groups .menu-group li svg { width: 18px; height: 18px; }
+#memory-editor .milkdown-slash-menu .menu-groups .menu-group li.hover,
+#memory-editor .milkdown-slash-menu .menu-groups .menu-group li.active { background: var(--color-bg-secondary); }
+
+/* Block drag/add handle — smaller, subtler. */
+#memory-editor .milkdown-block-handle .operation-item { width: 26px; height: 26px; }
+#memory-editor .milkdown-block-handle .operation-item svg { width: 18px; height: 18px; }
+
+/* Inline math editor — a clean popover instead of the default raw box. */
+#memory-editor .milkdown-latex-inline-edit {
+  border: 0.5px solid var(--color-border-tertiary);
+  box-shadow: var(--shadow-menu);
+  border-radius: 8px;
+  padding: 4px 6px 4px 10px;
+}
+#memory-editor .milkdown-latex-inline-edit .ProseMirror {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* Editor area */
+#memory-editor-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-primary);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+#memory-editor {
+  flex: 1;
+  min-height: 300px;
+  padding: 24px 32px;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+}
+
+.memory-fallback-editor {
+  flex: 1;
+  min-height: 300px;
+  padding: 24px 32px;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  border: none;
+  outline: none;
+  resize: none;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  display: block;
+}
+
+.memory-fallback-editor::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.memory-editor-loading,
+.memory-editor-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: 24px;
+}
+
+/* Milkdown theme overrides to match Reggia */
+#memory-editor {
+  /* Force Milkdown Crepe variables to the Reggia light palette */
+  --crepe-color-surface: var(--color-bg-primary);
+  --crepe-color-on-surface: var(--color-text-primary);
+  --crepe-color-background: var(--color-bg-primary);
+  --crepe-color-on-background: var(--color-text-primary);
+  --crepe-color-primary: var(--color-text-info);
+  --crepe-color-secondary: var(--color-text-secondary);
+  --crepe-color-hover: var(--color-bg-secondary);
+  --crepe-color-selected: var(--color-bg-tertiary);
+  --crepe-color-border: var(--color-border-secondary);
+  --crepe-color-text: var(--color-text-primary);
+  --crepe-color-muted: var(--color-text-tertiary);
+  /* Always sans-serif — Crepe's frame theme defaults headings to 'Noto Serif'. */
+  --crepe-font-title: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --crepe-font-default: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --crepe-font-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Wikilinks — Obsidian-style [[links]] rendered as styled anchors.
+   Keyed off the wikilink:// URL scheme since ProseMirror link marks can't
+   carry a class. .unresolved is toggled in JS against the file list. */
+#memory-editor a[href^="wikilink://"],
+#memory-editor a[href^="wikilink-embed://"] {
+  color: var(--color-text-info);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text-info) 35%, transparent);
+  cursor: pointer;
+}
+
+#memory-editor a[href^="wikilink://"]:hover,
+#memory-editor a[href^="wikilink-embed://"]:hover {
+  border-bottom-color: var(--color-text-info);
+}
+
+/* Unresolved — the target file doesn't exist yet. */
+#memory-editor a[href^="wikilink://"].unresolved,
+#memory-editor a[href^="wikilink-embed://"].unresolved {
+  color: var(--color-text-tertiary);
+  border-bottom-style: dashed;
+  border-bottom-color: color-mix(in srgb, var(--color-text-tertiary) 50%, transparent);
+}
+
+/* Embeds (![[...]]) — visually distinct, but rendered as a plain link for now. */
+#memory-editor a[href^="wikilink-embed://"]::before {
+  content: '⊞ ';
+  font-size: 0.8em;
+  opacity: 0.5;
+}
+
+#memory-editor,
+#memory-editor .milkdown,
+#memory-editor .milkdown .editor,
+#memory-editor .milkdown .ProseMirror {
+  background: var(--color-bg-primary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Obsidian-like reading/writing typography — sans-serif, 16px, airy spacing. */
+#memory-editor .milkdown {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  max-width: 720px;
+  margin: 0 auto;
+  min-height: 100%;
+}
+
+#memory-editor .milkdown .ProseMirror {
+  min-height: 100%;
+  padding: 0;
+  outline: none;
+}
+
+#memory-editor .milkdown p {
+  margin: 0 0 16px;
+}
+
+#memory-editor .milkdown h1,
+#memory-editor .milkdown h2,
+#memory-editor .milkdown h3,
+#memory-editor .milkdown h4,
+#memory-editor .milkdown h5,
+#memory-editor .milkdown h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text-primary);
+  margin: 28px 0 12px;
+}
+
+#memory-editor .milkdown h1 { font-size: 1.75em; }
+#memory-editor .milkdown h2 { font-size: 1.45em; }
+#memory-editor .milkdown h3 { font-size: 1.2em; }
+#memory-editor .milkdown h4 { font-size: 1.05em; }
+
+#memory-editor .milkdown ul,
+#memory-editor .milkdown ol {
+  padding-left: 24px;
+  margin: 0 0 12px;
+}
+
+#memory-editor .milkdown li {
+  margin-bottom: 4px;
+}
+
+#memory-editor .milkdown blockquote {
+  border-left: 2px solid var(--color-border-secondary);
+  padding-left: 12px;
+  color: var(--color-text-secondary);
+  margin: 12px 0;
+}
+
+#memory-editor .milkdown a {
+  color: var(--color-text-info);
+}
+
+#memory-editor .milkdown code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--color-bg-secondary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+#memory-editor .milkdown pre {
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+#memory-editor .milkdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+#memory-editor .milkdown hr {
+  border: none;
+  border-top: 0.5px solid var(--color-border-secondary);
+  margin: 18px 0;
+}
+
+#memory-editor .milkdown img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+}
+
+#memory-editor .milkdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+#memory-editor .milkdown th,
+#memory-editor .milkdown td {
+  border: 0.5px solid var(--color-border-secondary);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+#memory-editor .milkdown th {
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+}
+
+/* Milkdown selection / cursor */
+#memory-editor .milkdown .ProseMirror-focused {
+  outline: none;
+}
+
+#memory-editor .milkdown ::selection {
+  background: rgba(37, 99, 235, 0.18);
+}
+
+/* Placeholder color */
+#memory-editor .milkdown .milkdown-placeholder::before {
+  color: var(--color-text-tertiary);
+}
+
+/* File drawer */
+#memory-drawer {
+  flex-shrink: 0;
+  width: 240px;
+  background: var(--color-bg-primary);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#memory-drawer-header {
+  flex-shrink: 0;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+
+#memory-drawer-header .btn-icon {
+  display: none;
+}
+
+#memory-file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+  min-height: 0;
+}
+
+.memory-empty-files {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  padding: 10px 6px;
+}
+
+/* Folder rows */
+.memory-folder-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+
+.memory-folder-toggle:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.memory-folder-toggle .folder-chevron {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  transition: transform 0.15s ease;
+}
+
+.memory-folder-toggle.is-open .folder-chevron {
+  transform: rotate(90deg);
+}
+
+.memory-folder-toggle .folder-icon-open,
+.memory-folder-toggle.is-open .folder-icon-closed {
+  display: none;
+}
+
+.memory-folder-toggle.is-open .folder-icon-open,
+.memory-folder-toggle .folder-icon-closed {
+  display: inline;
+}
+
+.memory-folder-icon,
+.memory-folder-toggle i.folder-icon-closed,
+.memory-folder-toggle i.folder-icon-open {
+  font-size: 14px;
+  color: var(--color-text-tertiary);
+}
+
+.memory-folder-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memory-folder-children {
+  display: flex;
+  flex-direction: column;
+}
+
+/* File cards */
+.memory-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 6px 7px 8px;
+  margin-top: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.memory-file:hover {
+  background: var(--color-bg-secondary);
+}
+
+.memory-file.active {
+  background: var(--color-bg-tertiary);
+  border-left-color: var(--color-text-info);
+}
+
+.memory-file-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.memory-file-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memory-file.active .memory-file-name {
+  font-weight: 600;
+}
+
+.memory-file-meta {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+}
+
+.memory-file-menu-btn {
+  width: 22px;
+  height: 22px;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.memory-file:hover .memory-file-menu-btn,
+.memory-file.active .memory-file-menu-btn,
+.memory-file.menu-open .memory-file-menu-btn {
+  opacity: 1;
+}
+
+.memory-file-menu-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+}
+
+/* Inline rename in drawer */
+.memory-file-rename-input {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  border: 0.5px solid var(--color-text-info);
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: var(--color-bg-primary);
+  outline: none;
+}
+
+/* New page button */
+#memory-drawer-footer {
+  flex-shrink: 0;
+  padding: 10px;
+  border-top: 0.5px solid var(--color-border-tertiary);
+}
+
+.memory-new-page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.memory-new-page-btn:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-secondary);
+}
+
+.memory-new-page-btn i {
+  font-size: 14px;
+}
+
+/* Floating file context menu (reuses session-menu styling) */
+.memory-file-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--color-bg-primary);
+  border: 0.5px solid var(--color-border-secondary);
+  border-radius: 8px;
+  box-shadow: var(--shadow-menu);
+  padding: 4px;
+  min-width: 140px;
+  font-size: 12px;
+}
+
+/* Mobile drawer as dropdown */
+@media (max-width: 767px) {
+  #memory-main {
+    flex-direction: column;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  /* Narrow: a horizontal strip between the drawer and the editor. Space is
+     already tight, so it's always expanded and the manual collapse is hidden. */
+  #memory-format-bar {
+    order: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-self: stretch;
+    justify-content: flex-start;
+    gap: 4px;
+  }
+  #memory-format-bar .memory-format-group { flex-direction: row; }
+  #memory-format-bar .memory-format-sep { width: 1px; height: 22px; }
+  #memory-format-bar.is-collapsed .memory-format-group,
+  #memory-format-bar.is-collapsed .memory-format-sep { display: flex; }
+  #memory-format-collapse { display: none; }
+
+  #memory-editor-wrap {
+    flex: 1;
+    order: 3;
+    min-height: 0;
+  }
+
+  #memory-editor {
+    padding: 18px 20px;
+  }
+
+  #memory-drawer {
+    width: 100%;
+    max-height: 42px;
+    order: 1;
+    transition: max-height 0.25s ease;
+  }
+
+  #memory-drawer.is-collapsed {
+    max-height: 42px;
+  }
+
+  #memory-drawer:not(.is-collapsed) {
+    max-height: 240px;
+  }
+
+  #memory-drawer-header {
+    cursor: pointer;
+  }
+
+  #memory-drawer-header .btn-icon {
+    display: inline-flex;
+  }
+
+  #memory-drawer-header:hover {
+    background: var(--color-bg-secondary);
+  }
+
+  .memory-brand {
+    position: static;
+    transform: none;
+    margin-left: auto;
+    margin-right: auto;
+    font-size: 16px;
+  }
+
+  #memory-back span {
+    display: none;
+  }
+}
+
+/* Ensure the right panel scrollbar does not overlap the collapse toggle area.
+   Reserve a buffer on the right edge. */
+#reggia-items {
+  padding-right: 14px;
+  margin-right: -8px;
 }

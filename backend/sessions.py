@@ -78,6 +78,15 @@ async def session_chat(session_id: str, payload: dict):
     if model not in config.CHAT_CONFIG["models"]:
         raise HTTPException(status_code=400, detail=f"unknown model: {model}")
 
+    thinking = payload.get("thinking", True)
+    if not isinstance(thinking, bool):
+        raise HTTPException(status_code=400, detail="thinking must be a boolean")
+
+    thinking_effort = payload.get("thinking_effort", "high")
+    if thinking_effort not in agent_loop.THINKING_EFFORTS:
+        allowed = ", ".join(sorted(agent_loop.THINKING_EFFORTS))
+        raise HTTPException(status_code=400, detail=f"thinking_effort must be one of: {allowed}")
+
     session = db.get_session(session_id)
     if not session:
         db.create_session(session_id)
@@ -91,10 +100,16 @@ async def session_chat(session_id: str, payload: dict):
         return await _chat_docker(session_id, prompt, model, history)
 
     web_search = bool(payload.get("web_search", False))
-    return _chat_agent(session_id, prompt, model, history, web_search)
+    return _chat_agent(
+        session_id, prompt, model, history, web_search,
+        thinking=thinking, thinking_effort=thinking_effort,
+    )
 
 
-def _chat_agent(session_id, prompt, model, history, web_search):
+def _chat_agent(
+    session_id, prompt, model, history, web_search,
+    *, thinking=True, thinking_effort="high",
+):
     """Lightweight engine: stream one turn from the in-process DeepSeek loop
     (backend/agent_loop.py). No Docker, no Claude Code subprocess.
 
@@ -106,10 +121,16 @@ def _chat_agent(session_id, prompt, model, history, web_search):
 
     async def event_stream():
         full_response = []
+        tool_calls_meta = []
         usage = {}
 
         with open(log_file, "a") as lf:
-            async for sse_line in agent_loop.run(history, prompt, model, web_search=web_search):
+            async for sse_line in agent_loop.run(
+                history, prompt, model,
+                web_search=web_search,
+                thinking=thinking,
+                reasoning_effort=thinking_effort,
+            ):
                 lf.write(sse_line)
                 lf.flush()
                 try:
@@ -117,6 +138,16 @@ def _chat_agent(session_id, prompt, model, history, web_search):
                     mtype = msg.get("type")
                     if mtype == "text_delta":
                         full_response.append(msg.get("text", ""))
+                    elif mtype == "tool_call":
+                        tc = {"tool": msg.get("name", "")}
+                        args = msg.get("args") or {}
+                        if tc["tool"] in ("reggia_longterm_read", "reggia_longterm_index"):
+                            tc["page"] = args.get("domain", "")
+                        elif tc["tool"] == "reggia_item_detail":
+                            tc["page"] = args.get("item_id", "")
+                        elif tc["tool"] == "web_search":
+                            tc["query"] = args.get("query", "")
+                        tool_calls_meta.append(tc)
                     elif mtype == "result":
                         u = msg.get("usage") or {}
                         usage = {
@@ -129,11 +160,13 @@ def _chat_agent(session_id, prompt, model, history, web_search):
                 yield sse_line
 
         full_text = "".join(full_response)
+        tc_json = json.dumps(tool_calls_meta) if tool_calls_meta else None
         db.append_message(
             session_id, "assistant", full_text,
             cache_hit=usage.get("cache_hit"),
             cache_miss=usage.get("cache_miss"),
             output=usage.get("output"),
+            tool_calls=tc_json,
         )
 
         if len(history) == 0 and full_text.strip():

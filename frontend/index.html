@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Reggia</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
+<link rel="stylesheet" href="/vendor/tabler-icons/tabler-icons.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/vs.min.css">
 <link rel="stylesheet" href="/styles.css">
@@ -45,16 +45,30 @@
     <div id="sidebar-section-label">Recents</div>
     <div id="session-list"></div>
 
-    <button id="sidebar-account" class="sidebar-account" title="Account settings">
-      <div class="account-avatar" id="account-avatar">
-        <i class="ti ti-user"></i>
+    <div class="sidebar-account-wrap">
+      <button id="sidebar-account" class="sidebar-account" title="Account">
+        <div class="account-avatar" id="account-avatar">
+          <i class="ti ti-user"></i>
+        </div>
+        <div class="account-meta">
+          <div class="account-name" id="account-name">Account</div>
+          <div class="account-sub">Memory & Settings</div>
+        </div>
+        <i class="ti ti-chevron-up account-chevron" id="account-chevron"></i>
+      </button>
+
+      <!-- Floating account submenu -->
+      <div id="account-submenu" class="account-submenu" style="display:none">
+        <div class="account-submenu-item" data-action="memory">
+          <i class="ti ti-archive"></i>
+          <span>Memory</span>
+        </div>
+        <div class="account-submenu-item" data-action="settings">
+          <i class="ti ti-settings"></i>
+          <span>Settings</span>
+        </div>
       </div>
-      <div class="account-meta">
-        <div class="account-name" id="account-name">Account</div>
-        <div class="account-sub">Settings & API keys</div>
-      </div>
-      <i class="ti ti-chevron-right account-chevron"></i>
-    </button>
+    </div>
   </aside>
 
   <!-- Sidebar collapsed handle (left edge) -->
@@ -98,6 +112,14 @@
               <button id="btn-websearch-toggle" class="composer-toggle" type="button" title="Toggle web search" aria-pressed="false">
                 <i class="ti ti-world"></i><span>Web</span>
               </button>
+              <button id="btn-thinking-toggle" class="composer-toggle is-active" type="button" title="Toggle DeepSeek thinking" aria-pressed="true">
+                <i class="ti ti-brain"></i><span>Think</span>
+              </button>
+              <select id="chat-thinking-effort" class="chat-effort-select" title="Thinking effort">
+                <option value="low">Short (Flash)</option>
+                <option value="high" selected>Standard</option>
+                <option value="max">Deep</option>
+              </select>
             </div>
             <div class="composer-actions-right">
               <button id="btn-send-chat" class="btn-composer-send" title="Send" disabled>

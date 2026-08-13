@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Long-term Memory — Reggia</title>
+<!--
+  Self-hosted, CDN-free assets (built by /vendor-build → frontend/vendor/).
+  The editor used to fetch Milkdown + theme CSS + icons from esm.sh/jsdelivr at
+  runtime, which broke whenever the browser's QUIC/HTTP3 path to those CDNs was
+  blocked or flaky (the page would silently fall back to a plain textarea).
+  Everything is now bundled locally — works fully offline. codemirror is pinned
+  to 6.0.2 at build time (the last version that exports `basicSetup`, which
+  Crepe needs), so the original resolution bug is gone too.
+-->
+<link rel="stylesheet" href="/vendor/tabler-icons/tabler-icons.min.css">
+<link rel="stylesheet" href="/vendor/milkdown-crepe.css">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div id="memory-app">
+  <header id="memory-header">
+    <a href="/" id="memory-back">
+      <i class="ti ti-arrow-left"></i>
+      <span>Back to chat</span>
+    </a>
+    <span class="memory-brand">Long-term Memory</span>
+    <span id="memory-save-status" class="memory-save-status"></span>
+  </header>
+
+  <main id="memory-main">
+    <nav id="memory-format-bar" aria-label="Formatting" style="display:none">
+      <div class="memory-format-group">
+        <button class="memory-format-btn" data-cmd="bold" title="Bold (⌘B)" aria-label="Bold"><i class="ti ti-bold"></i></button>
+        <button class="memory-format-btn" data-cmd="italic" title="Italic (⌘I)" aria-label="Italic"><i class="ti ti-italic"></i></button>
+        <button class="memory-format-btn" data-cmd="strike" title="Strikethrough" aria-label="Strikethrough"><i class="ti ti-strikethrough"></i></button>
+        <button class="memory-format-btn" data-cmd="code" title="Inline code" aria-label="Inline code"><i class="ti ti-code"></i></button>
+      </div>
+      <div class="memory-format-sep"></div>
+      <div class="memory-format-group">
+        <button class="memory-format-btn" data-cmd="h1" title="Heading 1" aria-label="Heading 1"><i class="ti ti-h-1"></i></button>
+        <button class="memory-format-btn" data-cmd="h2" title="Heading 2" aria-label="Heading 2"><i class="ti ti-h-2"></i></button>
+        <button class="memory-format-btn" data-cmd="h3" title="Heading 3" aria-label="Heading 3"><i class="ti ti-h-3"></i></button>
+        <button class="memory-format-btn" data-cmd="bullet" title="Bullet list" aria-label="Bullet list"><i class="ti ti-list"></i></button>
+        <button class="memory-format-btn" data-cmd="ordered" title="Numbered list" aria-label="Numbered list"><i class="ti ti-list-numbers"></i></button>
+        <button class="memory-format-btn" data-cmd="quote" title="Quote" aria-label="Quote"><i class="ti ti-quote"></i></button>
+        <button class="memory-format-btn" data-cmd="codeblock" title="Code block" aria-label="Code block"><i class="ti ti-source-code"></i></button>
+        <button class="memory-format-btn" data-cmd="hr" title="Divider" aria-label="Divider"><i class="ti ti-separator-horizontal"></i></button>
+      </div>
+      <div class="memory-format-sep"></div>
+      <div class="memory-format-group">
+        <button class="memory-format-btn" data-cmd="link" title="Link" aria-label="Link"><i class="ti ti-link"></i></button>
+        <button class="memory-format-btn" data-cmd="latex" title="Inline math" aria-label="Inline math"><i class="ti ti-math"></i></button>
+      </div>
+      <button id="memory-format-collapse" class="memory-format-collapse" title="Collapse formatting bar" aria-label="Collapse formatting bar"><i class="ti ti-chevron-left"></i></button>
+    </nav>
+
+    <section id="memory-editor-wrap">
+      <div id="memory-editor-loading" class="memory-editor-loading">Loading editor…</div>
+      <div id="memory-editor" style="display:none"></div>
+      <textarea id="memory-fallback-editor" class="memory-fallback-editor" style="display:none" placeholder="Start writing…"></textarea>
+      <div id="memory-editor-empty" class="memory-editor-empty" style="display:none">
+        Select a file from the drawer, or create a new page.
+      </div>
+    </section>
+
+    <aside id="memory-drawer">
+      <div id="memory-drawer-header">
+        <span>Pages</span>
+        <button id="memory-drawer-toggle" class="btn-icon" title="Toggle pages" aria-label="Toggle pages">
+          <i class="ti ti-chevron-down"></i>
+        </button>
+      </div>
+
+      <div id="memory-file-list"></div>
+
+      <div id="memory-drawer-footer">
+        <button id="memory-new-page" class="memory-new-page-btn">
+          <i class="ti ti-plus"></i>
+          <span>New page</span>
+        </button>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- Memory file context menu (floating) -->
+<div id="memory-file-menu" class="memory-file-menu" style="display:none">
+  <div class="session-menu-item" data-action="rename">
+    <i class="ti ti-pencil"></i><span>Rename</span>
+  </div>
+  <div class="session-menu-divider"></div>
+  <div class="session-menu-item session-menu-danger" data-action="delete">
+    <i class="ti ti-trash"></i><span>Delete</span>
+  </div>
+</div>
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+let allFiles = []
+let activePath = null
+let crepe = null
+let MK = null                 // the loaded Milkdown bundle module (commands, schemas, ctx)
+let CrepeClass = null
+let CrepeFeatureEnum = null   // Crepe.Feature enum (sibling export, NOT Crepe.CrepeFeature)
+let findAndReplaceFn = null   // mdast-util-find-and-replace (loaded from CDN)
+let wikilinkPlugin = null     // $remark-wrapped wikilink parser, built once
+let saveDebounce = null
+let isSaving = false
+let pendingSave = false
+let lastSavedMarkdown = ''
+let drawerOpen = window.innerWidth >= 768
+let editorMode = 'milkdown' // 'milkdown' | 'fallback'
+let formatBarCollapsed = localStorage.getItem('memory.formatBar') === 'collapsed'
+let activeStateTimer = null
+
+const menuState = { file: null, anchor: null, itemEl: null }
+
+// ---------------------------------------------------------------------------
+// DOM refs
+// ---------------------------------------------------------------------------
+
+const els = {
+  saveStatus: document.getElementById('memory-save-status'),
+  editor: document.getElementById('memory-editor'),
+  fallbackEditor: document.getElementById('memory-fallback-editor'),
+  editorLoading: document.getElementById('memory-editor-loading'),
+  editorEmpty: document.getElementById('memory-editor-empty'),
+  fileList: document.getElementById('memory-file-list'),
+  drawer: document.getElementById('memory-drawer'),
+  drawerToggle: document.getElementById('memory-drawer-toggle'),
+  drawerHeader: document.getElementById('memory-drawer-header'),
+  newPageBtn: document.getElementById('memory-new-page'),
+  fileMenu: document.getElementById('memory-file-menu'),
+  formatBar: document.getElementById('memory-format-bar'),
+  formatCollapse: document.getElementById('memory-format-collapse'),
+}
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+
+async function apiList() {
+  const resp = await fetch('/api/memory/files')
+  if (!resp.ok) throw new Error(await resp.text())
+  return await resp.json()
+}
+
+async function apiRead(path) {
+  const resp = await fetch(`/api/memory/files/${encodeURIComponent(path)}`)
+  if (!resp.ok) throw new Error(await resp.text())
+  return await resp.text()
+}
+
+async function apiSave(path, content) {
+  const resp = await fetch(`/api/memory/files/${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/plain' },
+    body: content,
+  })
+  if (!resp.ok) throw new Error(await resp.text())
+}
+
+async function apiCreate(path, content = '') {
+  const resp = await fetch('/api/memory/files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  })
+  if (!resp.ok) throw new Error(await resp.text())
+  return await resp.json().catch(() => ({}))
+}
+
+async function apiDelete(path) {
+  const resp = await fetch(`/api/memory/files/${encodeURIComponent(path)}`, { method: 'DELETE' })
+  if (!resp.ok) throw new Error(await resp.text())
+}
+
+async function apiRename(path, newPath) {
+  const resp = await fetch(`/api/memory/files/${encodeURIComponent(path)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ new_path: newPath }),
+  })
+  if (!resp.ok) throw new Error(await resp.text())
+}
+
+// ---------------------------------------------------------------------------
+// Editor bootstrap
+// ---------------------------------------------------------------------------
+
+async function loadMilkdown() {
+  try {
+    // Local self-hosted bundle (frontend/vendor/, built by /vendor-build). No
+    // network fetch — the old esm.sh import broke whenever browser QUIC to the
+    // CDN was blocked. Exports: Crepe, CrepeFeature, $remark, findAndReplace.
+    const mod = await import('/vendor/milkdown-crepe.bundle.js')
+    if (mod && mod.Crepe) {
+      MK = mod
+      CrepeClass = mod.Crepe
+      // The feature enum is a sibling export `CrepeFeature` (also exposed as the
+      // static `Crepe.Feature`) — NOT `Crepe.CrepeFeature`. Reading the wrong
+      // one threw a TypeError that silently dropped the editor to the textarea.
+      CrepeFeatureEnum = mod.CrepeFeature || (mod.Crepe && mod.Crepe.Feature) || null
+      await loadWikilinkDeps()  // optional — editor still works without it
+      return true
+    }
+  } catch (err) {
+    console.warn('Milkdown failed to load, falling back to plain textarea:', err)
+  }
+  return false
+}
+
+// Wikilink support is layered on top of Crepe. $remark + findAndReplace come
+// from the SAME local bundle as Crepe, so they always bind to the one
+// @milkdown/core instance (a second core would silently no-op the plugin —
+// impossible now that everything is one bundle). The import is already cached
+// from loadMilkdown(), so this is effectively free.
+async function loadWikilinkDeps() {
+  if (wikilinkPlugin) return
+  try {
+    const mod = await import('/vendor/milkdown-crepe.bundle.js')
+    findAndReplaceFn = mod.findAndReplace
+    wikilinkPlugin = mod.$remark('reggiaWikilink', () => remarkWikilink)
+  } catch (err) {
+    console.warn('Wikilink deps failed to load; [[links]] will render as plain text:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wikilinks
+//
+// Parse direction:  remark transform turns [[target|display]] into a standard
+//   link node whose URL carries the target (encoded), so Crepe renders it as a
+//   clickable <a>. Heading/embed/display are preserved so we can round-trip.
+//   findAndReplace skips code / inlineCode / existing links → [[x]] in code
+//   blocks stays literal.
+// Serialize direction:  unified's .stringify() does NOT run transformers, so we
+//   can't preserve [[ ]] with a remark plugin. Instead serializeWikilinks()
+//   rewrites the link syntax back to [[ ]] as a string post-process on save.
+// ---------------------------------------------------------------------------
+
+const WIKILINK_RE = /!?\[\[([^\]]+?)\]\]/g
+
+function safeDecode(s) { try { return decodeURIComponent(s) } catch (e) { return s } }
+
+// remark plugin factory: () => transformer
+function remarkWikilink() {
+  return (tree) => {
+    if (!findAndReplaceFn) return
+    findAndReplaceFn(tree, [
+      [WIKILINK_RE, (match, inner) => {
+        const isEmbed = match.startsWith('!')
+        let target = inner
+        let display = null
+        let heading = null
+
+        const pipe = inner.indexOf('|')
+        if (pipe !== -1) { target = inner.slice(0, pipe); display = inner.slice(pipe + 1) }
+
+        const hash = target.indexOf('#')
+        if (hash !== -1) { heading = target.slice(hash + 1); target = target.slice(0, hash) }
+
+        target = target.trim()
+        if (!target) return match  // [[#heading]] (in-file) — leave as plain text
+
+        const scheme = isEmbed ? 'wikilink-embed' : 'wikilink'
+        const url = `${scheme}://${encodeURIComponent(target)}` +
+                    (heading ? '#' + encodeURIComponent(heading.trim()) : '')
+        return {
+          type: 'link',
+          url,
+          children: [{ type: 'text', value: (display != null ? display : inner).trim() }],
+        }
+      }],
+    ])
+  }
+}
+
+// Convert the editor's serialized markdown back to [[ ]] syntax before saving.
+function serializeWikilinks(md) {
+  if (!md) return md
+  md = md.replace(
+    /\[([^\]]*)\]\((wikilink(?:-embed)?):\/\/([^)#\s]+)(?:#([^)\s]+))?\)/g,
+    (m, display, scheme, encTarget, encHeading) => {
+      const target = safeDecode(encTarget)
+      const heading = encHeading ? safeDecode(encHeading) : ''
+      const embed = scheme === 'wikilink-embed' ? '!' : ''
+      const inner = target + (heading ? '#' + heading : '')
+      if (display && display !== inner && display !== target) {
+        return `${embed}[[${inner}|${display}]]`
+      }
+      return `${embed}[[${inner}]]`
+    }
+  )
+  // De-escape any literal \[\[ … \]\] (a freshly-typed, unconverted wikilink
+  // that CommonMark may have bracket-escaped on serialize).
+  md = md.replace(/\\\[\\\[/g, '[[').replace(/\\\]\\\]/g, ']]')
+  return md
+}
+
+function parseWikilinkHref(href) {
+  if (!href) return { target: '', heading: '', embed: false }
+  const embed = href.startsWith('wikilink-embed://')
+  let rest = href.replace(/^wikilink(?:-embed)?:\/\//, '')
+  let heading = ''
+  const hash = rest.indexOf('#')
+  if (hash !== -1) { heading = rest.slice(hash + 1); rest = rest.slice(0, hash) }
+  return { target: safeDecode(rest), heading: safeDecode(heading), embed }
+}
+
+// Resolve a wikilink target to a known file path. Exact path match (±.md) wins,
+// then a filename match anywhere in the vault.
+function resolveWikilink(target) {
+  if (!target) return null
+  const paths = allFiles.filter(f => !f.is_dir).map(f => f.path)
+  const withExt = target.endsWith('.md') ? target : target + '.md'
+  if (paths.includes(withExt)) return withExt
+  const filename = withExt.split('/').pop()
+  return paths.find(p => p === filename || p.endsWith('/' + filename)) || null
+}
+
+// Tag rendered wikilinks as resolved/unresolved against the current file list.
+function markWikilinks() {
+  if (editorMode !== 'milkdown') return
+  const anchors = els.editor.querySelectorAll(
+    'a[href^="wikilink://"], a[href^="wikilink-embed://"]'
+  )
+  anchors.forEach(a => {
+    const { target } = parseWikilinkHref(a.getAttribute('href'))
+    a.classList.toggle('unresolved', !resolveWikilink(target))
+  })
+}
+
+async function initEditor(initialContent = '') {
+  destroyEditor()
+  els.editorLoading.style.display = 'none'
+
+  if (editorMode === 'milkdown' && !CrepeClass) {
+    const ok = await loadMilkdown()
+    if (!ok) editorMode = 'fallback'
+  }
+
+  if (editorMode === 'milkdown') {
+    try {
+      await initMilkdown(initialContent)
+    } catch (err) {
+      console.warn('Milkdown create failed, falling back to plain textarea:', err)
+      editorMode = 'fallback'
+      initFallback(initialContent)
+    }
+  } else {
+    initFallback(initialContent)
+  }
+
+  lastSavedMarkdown = initialContent
+  pendingSave = false
+  updateFormatBarVisibility()
+  updateFormatActiveState()
+}
+
+async function initMilkdown(initialContent) {
+  // Show container BEFORE Milkdown initializes — ProseMirror needs
+  // visible dimensions to compute layout.
+  els.editor.style.display = ''
+  els.fallbackEditor.style.display = 'none'
+
+  const F = CrepeFeatureEnum
+  crepe = new CrepeClass({
+    root: '#memory-editor',
+    defaultValue: initialContent,
+    // Guard: if the enum somehow isn't available, omit features so Crepe falls
+    // back to its own defaults rather than throwing on [undefined].
+    features: F ? {
+      [F.Toolbar]: false,   // floating selection toolbar — replaced by the left #memory-format-bar
+      [F.BlockEdit]: true,  // keep the "/" slash menu for block formatting (headings/lists/quote/code), Obsidian-style
+      [F.Placeholder]: true,
+      [F.CodeMirror]: true,
+      [F.Table]: true,
+      [F.Latex]: true,
+      [F.LinkTooltip]: true,
+      [F.ListItem]: true,
+      [F.Cursor]: true,
+      [F.ImageBlock]: true,
+      [F.TopBar]: false,
+      [F.AI]: false,
+    } : undefined,
+  })
+
+  // Ensure the wikilink deps finished loading — the eager preload sets
+  // CrepeClass before the plugin promise resolves, so the first open could
+  // otherwise race ahead without it. Idempotent + error-swallowing.
+  await loadWikilinkDeps()
+
+  // Register the wikilink remark parser before create() so [[links]] in the
+  // initial content are turned into clickable nodes. crepe.editor is the
+  // underlying Milkdown Editor.
+  if (wikilinkPlugin && crepe.editor) {
+    try { crepe.editor.use(wikilinkPlugin) }
+    catch (e) { console.warn('Wikilink plugin registration failed:', e) }
+  }
+
+  await crepe.create()
+  markWikilinks()
+
+  // Smoke-test diagnostic: if the source has [[links]] but none rendered as
+  // anchors, the remark plugin didn't apply. Surfaced here so it's obvious in
+  // the console.
+  if (wikilinkPlugin && /\[\[[^\]]+\]\]/.test(initialContent) &&
+      !els.editor.querySelector('a[href^="wikilink"]')) {
+    console.warn('[wikilink] source contains [[links]] but none rendered as anchors — remark plugin did not apply.')
+  }
+
+  crepe.on((listener) => {
+    listener.markdownUpdated((ctx, markdown, prevMarkdown) => {
+      if (markdown === prevMarkdown) return
+      markWikilinks()
+      scheduleSave()
+    })
+  })
+}
+
+function initFallback(initialContent) {
+  els.editor.style.display = 'none'
+  els.fallbackEditor.style.display = ''
+  els.fallbackEditor.value = initialContent
+}
+
+function destroyEditor() {
+  if (crepe) {
+    try { crepe.destroy() } catch (e) { /* ignore */ }
+    crepe = null
+  }
+  els.editor.innerHTML = ''
+  els.fallbackEditor.value = ''
+}
+
+async function getEditorMarkdown() {
+  if (editorMode === 'milkdown' && crepe) {
+    // Rewrite wikilink:// link syntax back to [[ ]] so the on-disk file stays
+    // Obsidian-compatible. The fallback textarea already holds raw [[ ]].
+    return serializeWikilinks(await crepe.getMarkdown() || '')
+  }
+  return els.fallbackEditor.value
+}
+
+// Focusout on the editor area triggers an immediate save.
+// Use focusout (bubbles) instead of blur — blur doesn't fire on divs.
+els.editor.addEventListener('focusout', () => {
+  if (activePath) flushSave()
+})
+
+// Wikilink navigation. Capture phase so we intercept the click before Crepe's
+// own link handling / tooltip.
+els.editor.addEventListener('click', async (e) => {
+  const a = e.target.closest('a[href^="wikilink://"], a[href^="wikilink-embed://"]')
+  if (!a) return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const { target } = parseWikilinkHref(a.getAttribute('href'))
+  if (!target) return
+
+  const resolved = resolveWikilink(target)
+  if (resolved) { openFile(resolved); return }
+
+  // Unresolved → offer to create the file, then open it.
+  const newPath = target.endsWith('.md') ? target : target + '.md'
+  if (!confirm(`Create “${newPath}”?`)) return
+  try {
+    await apiCreate(newPath, '')
+    const parts = newPath.split('/')
+    for (let i = 1; i < parts.length; i++) {
+      localStorage.setItem(`memory.folder:${parts.slice(0, i).join('/')}`, 'open')
+    }
+    await loadFiles(newPath)
+  } catch (err) {
+    alert('Could not create page: ' + err.message)
+  }
+}, true)
+
+els.fallbackEditor.addEventListener('input', () => {
+  scheduleSave()
+})
+
+els.fallbackEditor.addEventListener('focusout', () => {
+  if (activePath) flushSave()
+})
+
+// ---------------------------------------------------------------------------
+// Left formatting bar
+//
+// The whole formatting palette (inline marks + block types + link + math),
+// replacing Crepe's floating selection toolbar. Inline marks toggle Office-style:
+// click Bold with just a cursor → ProseMirror sets a stored mark, so the next
+// typed text is bold until you toggle off. Active state is read straight from
+// the editor state (stored marks + ancestor nodes) so the button reflects that
+// "mode" — isMarkSelectedCommand only checks rangeHasMark and misses it.
+// ---------------------------------------------------------------------------
+
+let SPEC = null
+
+// Built once after the bundle loads. Each entry: kind + the command(s)/schema
+// needed to apply it and to report whether it's active at the cursor.
+function buildSpec() {
+  return {
+    bold:      { kind: 'mark', cmd: MK.toggleStrongCommand,        schema: MK.strongSchema },
+    italic:    { kind: 'mark', cmd: MK.toggleEmphasisCommand,      schema: MK.emphasisSchema },
+    strike:    { kind: 'mark', cmd: MK.toggleStrikethroughCommand, schema: MK.strikethroughSchema },
+    code:      { kind: 'mark', cmd: MK.toggleInlineCodeCommand,    schema: MK.inlineCodeSchema },
+    h1:        { kind: 'heading', level: 1 },
+    h2:        { kind: 'heading', level: 2 },
+    h3:        { kind: 'heading', level: 3 },
+    bullet:    { kind: 'list', cmd: MK.wrapInBulletListCommand,  schema: MK.bulletListSchema },
+    ordered:   { kind: 'list', cmd: MK.wrapInOrderedListCommand, schema: MK.orderedListSchema },
+    quote:     { kind: 'wrap', cmd: MK.wrapInBlockquoteCommand,  schema: MK.blockquoteSchema },
+    codeblock: { kind: 'codeblock', schema: MK.codeBlockSchema },
+    hr:        { kind: 'insert', cmd: MK.insertHrCommand },
+    link:      { kind: 'mark', cmd: MK.toggleLinkCommand, schema: MK.linkSchema },
+    latex:     { kind: 'math' },
+  }
+}
+
+function markActive(state, type) {
+  if (!type) return false
+  const { empty, $from, from, to } = state.selection
+  if (empty) return !!type.isInSet(state.storedMarks || $from.marks())
+  return state.doc.rangeHasMark(from, to, type)
+}
+
+function nodeActive(state, type, attrs) {
+  if (!type) return false
+  const { $from } = state.selection
+  for (let d = $from.depth; d >= 0; d--) {
+    const node = $from.node(d)
+    if (node && node.type === type) {
+      return !attrs || Object.keys(attrs).every((k) => node.attrs[k] === attrs[k])
+    }
+  }
+  return false
+}
+
+function isActive(entry, state, ctx) {
+  switch (entry.kind) {
+    case 'mark': return markActive(state, entry.schema.type(ctx))
+    case 'heading': return nodeActive(state, MK.headingSchema.type(ctx), { level: entry.level })
+    case 'list':
+    case 'wrap': return nodeActive(state, entry.schema.type(ctx))
+    case 'codeblock': return nodeActive(state, MK.codeBlockSchema.type(ctx))
+    default: return false  // insert (hr), math
+  }
+}
+
+function runEntry(entry, commands, active) {
+  switch (entry.kind) {
+    case 'mark':      commands.call(entry.cmd.key); break
+    case 'heading':   commands.call(MK.wrapInHeadingCommand.key, active ? 0 : entry.level); break  // 0 → paragraph
+    case 'list':      commands.call(active ? MK.liftListItemCommand.key : entry.cmd.key); break
+    case 'codeblock': commands.call(active ? MK.turnIntoTextCommand.key : MK.createCodeBlockCommand.key); break
+    case 'wrap':      if (!active) commands.call(entry.cmd.key); break  // blockquote: apply only (no clean unwrap → avoid nesting)
+    case 'insert':    commands.call(entry.cmd.key); break  // hr
+    case 'math':      commands.call('ToggleLatex'); break  // wraps the selection, or inserts an inline math slot
+  }
+}
+
+function runFormatCommand(cmd) {
+  if (!crepe || editorMode !== 'milkdown' || !MK) return
+  if (!SPEC) SPEC = buildSpec()
+  const entry = SPEC[cmd]
+  if (!entry) return
+  try {
+    crepe.editor.action((ctx) => {
+      const commands = ctx.get(MK.commandsCtx)
+      const active = isActive(entry, ctx.get(MK.editorViewCtx).state, ctx)
+      runEntry(entry, commands, active)
+    })
+  } catch (e) {
+    console.warn('Format command failed:', cmd, e)
+  }
+  // Keep focus in the document so the selection / stored mark sticks.
+  const view = currentEditorView()
+  if (view) view.focus()
+  updateFormatActiveState()
+}
+
+function currentEditorView() {
+  if (!crepe || !MK) return null
+  try { return crepe.editor.action((ctx) => ctx.get(MK.editorViewCtx)) }
+  catch (e) { return null }
+}
+
+// Highlight every button whose format is active at the cursor (Office-style:
+// includes stored marks, so "bold mode" lights up even with no selection).
+function updateFormatActiveState() {
+  if (editorMode !== 'milkdown' || !crepe || !MK) return
+  if (!SPEC) SPEC = buildSpec()
+  const actives = {}
+  try {
+    crepe.editor.action((ctx) => {
+      const state = ctx.get(MK.editorViewCtx).state
+      for (const cmd in SPEC) {
+        try { actives[cmd] = isActive(SPEC[cmd], state, ctx) } catch (e) { actives[cmd] = false }
+      }
+    })
+  } catch (e) { return }
+  els.formatBar.querySelectorAll('.memory-format-btn').forEach((btn) => {
+    btn.classList.toggle('is-active', !!actives[btn.dataset.cmd])
+  })
+}
+
+function updateFormatBarVisibility() {
+  const show = editorMode === 'milkdown' && !!activePath
+  els.formatBar.style.display = show ? '' : 'none'
+  els.formatBar.classList.toggle('is-collapsed', formatBarCollapsed)
+  const icon = els.formatCollapse.querySelector('i')
+  if (icon) icon.className = formatBarCollapsed ? 'ti ti-chevron-right' : 'ti ti-chevron-left'
+  els.formatCollapse.title = formatBarCollapsed ? 'Expand formatting bar' : 'Collapse formatting bar'
+}
+
+els.formatBar.addEventListener('mousedown', (e) => {
+  // Prevent the bar from stealing selection/focus from the editor on click.
+  if (e.target.closest('.memory-format-btn, #memory-format-collapse')) e.preventDefault()
+})
+
+els.formatBar.querySelectorAll('.memory-format-btn').forEach((btn) => {
+  btn.addEventListener('click', () => runFormatCommand(btn.dataset.cmd))
+})
+
+els.formatCollapse.addEventListener('click', () => {
+  formatBarCollapsed = !formatBarCollapsed
+  localStorage.setItem('memory.formatBar', formatBarCollapsed ? 'collapsed' : 'open')
+  updateFormatBarVisibility()
+})
+
+// Refresh active-state as the selection moves inside the editor.
+document.addEventListener('selectionchange', () => {
+  if (editorMode !== 'milkdown') return
+  const sel = document.getSelection()
+  if (!sel || !sel.anchorNode || !els.editor.contains(sel.anchorNode)) return
+  clearTimeout(activeStateTimer)
+  activeStateTimer = setTimeout(updateFormatActiveState, 60)
+})
+
+// ---------------------------------------------------------------------------
+// Saving
+// ---------------------------------------------------------------------------
+
+function scheduleSave() {
+  pendingSave = true
+  clearTimeout(saveDebounce)
+  saveDebounce = setTimeout(() => flushSave(), 2000)
+}
+
+async function flushSave() {
+  clearTimeout(saveDebounce)
+  if (!activePath || !pendingSave || isSaving) return
+  const markdown = await getEditorMarkdown()
+  if (markdown === lastSavedMarkdown) {
+    pendingSave = false
+    return
+  }
+  isSaving = true
+  setSaveStatus('Saving…')
+  try {
+    await apiSave(activePath, markdown)
+    lastSavedMarkdown = markdown
+    pendingSave = false
+    setSaveStatus('Saved')
+    await loadFiles(false)
+  } catch (err) {
+    setSaveStatus('Save failed')
+    console.error('Memory save failed:', err)
+  } finally {
+    isSaving = false
+  }
+}
+
+let saveStatusFade
+function setSaveStatus(text) {
+  els.saveStatus.textContent = text
+  els.saveStatus.style.opacity = '1'
+  clearTimeout(saveStatusFade)
+  saveStatusFade = setTimeout(() => {
+    els.saveStatus.style.opacity = '0'
+  }, 1500)
+}
+
+// ---------------------------------------------------------------------------
+// File list
+// ---------------------------------------------------------------------------
+
+async function loadFiles(selectPath = null) {
+  try {
+    allFiles = await apiList()
+  } catch (err) {
+    els.fileList.innerHTML = `<div class="memory-empty-files">Failed to load pages.</div>`
+    console.error('Memory list failed:', err)
+    return
+  }
+
+  renderFileList()
+  markWikilinks()  // resolution depends on the file list, which just changed
+
+  if (selectPath) {
+    await openFile(selectPath)
+  } else if (activePath && !allFiles.find(f => f.path === activePath)) {
+    // Previously open file was deleted.
+    activePath = null
+    showEmpty()
+  }
+}
+
+function renderFileList() {
+  const rootNodes = buildTree(allFiles)
+  const html = rootNodes.map(node => renderNode(node)).join('')
+  els.fileList.innerHTML = html || `<div class="memory-empty-files">No pages yet.</div>`
+  attachFileHandlers()
+}
+
+function buildTree(files) {
+  const root = { name: '', path: '', is_dir: true, children: [] }
+
+  for (const f of files) {
+    if (f.is_dir) continue
+    const parts = f.path.split('/')
+    let parent = root
+    for (let i = 0; i < parts.length - 1; i++) {
+      const name = parts[i]
+      let child = parent.children.find(c => c.is_dir && c.name === name)
+      if (!child) {
+        child = { name, path: parts.slice(0, i + 1).join('/'), is_dir: true, children: [] }
+        parent.children.push(child)
+      }
+      parent = child
+    }
+    const fileNode = { ...f, is_dir: false, children: [] }
+    parent.children.push(fileNode)
+  }
+
+  // Sort: folders first, then alphabetically.
+  const sortNodes = (nodes) => {
+    nodes.sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    nodes.forEach(n => { if (n.is_dir) sortNodes(n.children) })
+  }
+  sortNodes(root.children)
+
+  return root.children
+}
+
+function renderNode(node, depth = 0) {
+  if (node.is_dir) {
+    const isOpen = localStorage.getItem(`memory.folder:${node.path}`) !== 'closed'
+    const children = node.children.map(c => renderNode(c, depth + 1)).join('')
+    return `
+      <div class="memory-folder" data-path="${escapeHtml(node.path)}">
+        <button class="memory-folder-toggle ${isOpen ? 'is-open' : ''}" style="padding-left:${10 + depth * 12}px">
+          <i class="ti ti-chevron-right folder-chevron"></i>
+          <i class="ti ti-folder folder-icon-closed"></i>
+          <i class="ti ti-folder-open folder-icon-open"></i>
+          <span class="memory-folder-name">${escapeHtml(node.name)}</span>
+        </button>
+        <div class="memory-folder-children" ${isOpen ? '' : 'style="display:none"'}>
+          ${children}
+        </div>
+      </div>
+    `
+  }
+
+  const isActive = node.path === activePath
+  const modified = formatTime(node.modified)
+  return `
+    <div class="memory-file${isActive ? ' active' : ''}" data-path="${escapeHtml(node.path)}" style="padding-left:${10 + depth * 12}px">
+      <div class="memory-file-main">
+        <span class="memory-file-name">${escapeHtml(node.name)}</span>
+        <span class="memory-file-meta">${escapeHtml(modified)}</span>
+      </div>
+      <button class="memory-file-menu-btn btn-icon" title="Page actions">
+        <i class="ti ti-dots-vertical"></i>
+      </button>
+    </div>
+  `
+}
+
+function attachFileHandlers() {
+  // Folder toggles
+  els.fileList.querySelectorAll('.memory-folder-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const folder = btn.closest('.memory-folder')
+      const children = folder.querySelector('.memory-folder-children')
+      const isOpen = children.style.display !== 'none'
+      children.style.display = isOpen ? 'none' : ''
+      btn.classList.toggle('is-open', !isOpen)
+      const path = folder.dataset.path
+      localStorage.setItem(`memory.folder:${path}`, isOpen ? 'closed' : 'open')
+    })
+  })
+
+  // File clicks
+  els.fileList.querySelectorAll('.memory-file').forEach(fileEl => {
+    fileEl.addEventListener('click', (e) => {
+      if (e.target.closest('.memory-file-menu-btn') || e.target.closest('.memory-file-rename-input')) return
+      const path = fileEl.dataset.path
+      if (path !== activePath) openFile(path)
+    })
+  })
+
+  // Menu buttons
+  els.fileList.querySelectorAll('.memory-file-menu-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const fileEl = btn.closest('.memory-file')
+      openFileMenu(fileEl, btn)
+    })
+  })
+
+  // Inline rename: double-click filename
+  els.fileList.querySelectorAll('.memory-file-name').forEach(nameEl => {
+    nameEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation()
+      const fileEl = nameEl.closest('.memory-file')
+      beginRenameFile(fileEl)
+    })
+  })
+
+  // Right-click context menu
+  els.fileList.querySelectorAll('.memory-file').forEach(fileEl => {
+    fileEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const btn = fileEl.querySelector('.memory-file-menu-btn')
+      if (btn) openFileMenu(fileEl, btn)
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
+// File operations
+// ---------------------------------------------------------------------------
+
+async function openFile(path) {
+  // Save any pending changes before switching.
+  const oldPath = activePath
+  if (oldPath && pendingSave) await flushSave()
+  clearTimeout(saveDebounce)
+  pendingSave = false
+
+  activePath = path
+  showEditor()
+  renderFileList()
+
+  try {
+    const text = await apiRead(path)
+    await initEditor(text)
+  } catch (err) {
+    activePath = oldPath
+    setSaveStatus('Failed to open')
+    console.error('Memory read failed:', err)
+  }
+}
+
+function showEditor() {
+  els.editorEmpty.style.display = 'none'
+  updateFormatBarVisibility()
+}
+
+function showEmpty() {
+  els.editor.style.display = 'none'
+  els.fallbackEditor.style.display = 'none'
+  els.editorEmpty.style.display = ''
+  updateFormatBarVisibility()
+}
+
+async function createNewPage() {
+  const name = prompt('New page name (e.g. notes.md or projects/idea.md):')
+  if (!name) return
+  const clean = name.trim().replace(/^\/+|\/+$/g, '')
+  if (!clean) return
+  const path = clean.endsWith('.md') ? clean : `${clean}.md`
+  try {
+    await apiCreate(path, '')
+    // Open folder containing new file so it's visible.
+    const parts = path.split('/')
+    for (let i = 1; i < parts.length; i++) {
+      const folderPath = parts.slice(0, i).join('/')
+      localStorage.setItem(`memory.folder:${folderPath}`, 'open')
+    }
+    await loadFiles(path)
+  } catch (err) {
+    alert('Could not create page: ' + err.message)
+  }
+}
+
+async function deleteFile(path) {
+  if (!confirm(`Delete “${path}”? This cannot be undone.`)) return
+  try {
+    await apiDelete(path)
+    if (activePath === path) {
+      activePath = null
+      showEmpty()
+    }
+    await loadFiles()
+  } catch (err) {
+    alert('Could not delete page: ' + err.message)
+  }
+}
+
+function beginRenameFile(fileEl) {
+  const path = fileEl.dataset.path
+  const nameEl = fileEl.querySelector('.memory-file-name')
+  const menuBtn = fileEl.querySelector('.memory-file-menu-btn')
+  const mainEl = fileEl.querySelector('.memory-file-main')
+
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'memory-file-rename-input'
+  input.value = nameEl.textContent
+  input.style.marginLeft = nameEl.style.marginLeft || '0'
+
+  nameEl.style.display = 'none'
+  menuBtn.style.display = 'none'
+  mainEl.appendChild(input)
+  input.focus()
+  input.select()
+
+  let done = false
+  const commit = async () => {
+    if (done) return
+    done = true
+    const newName = input.value.trim()
+    if (newName && newName !== nameEl.textContent) {
+      const parts = path.split('/')
+      parts[parts.length - 1] = newName.endsWith('.md') ? newName : `${newName}.md`
+      const newPath = parts.join('/')
+      if (newPath !== path) {
+        try {
+          await apiRename(path, newPath)
+          if (activePath === path) activePath = newPath
+          await loadFiles()
+          return
+        } catch (err) {
+          alert('Could not rename page: ' + err.message)
+        }
+      }
+    }
+    nameEl.style.display = ''
+    menuBtn.style.display = ''
+    input.remove()
+  }
+
+  input.addEventListener('blur', commit)
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); input.blur() }
+    else if (e.key === 'Escape') {
+      e.preventDefault()
+      done = true
+      nameEl.style.display = ''
+      menuBtn.style.display = ''
+      input.remove()
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Context menu
+// ---------------------------------------------------------------------------
+
+function openFileMenu(fileEl, anchorEl) {
+  closeFileMenu()
+  menuState.file = allFiles.find(f => f.path === fileEl.dataset.path)
+  menuState.anchor = anchorEl
+  menuState.itemEl = fileEl
+  fileEl.classList.add('menu-open')
+
+  const rect = anchorEl.getBoundingClientRect()
+  els.fileMenu.style.display = 'block'
+  const menuRect = els.fileMenu.getBoundingClientRect()
+  let top = rect.bottom + 4
+  let left = rect.right - menuRect.width
+  if (left < 8) left = 8
+  if (top + menuRect.height > window.innerHeight - 8) {
+    top = rect.top - menuRect.height - 4
+  }
+  els.fileMenu.style.top = `${top}px`
+  els.fileMenu.style.left = `${left}px`
+}
+
+function closeFileMenu() {
+  els.fileMenu.style.display = 'none'
+  if (menuState.itemEl) menuState.itemEl.classList.remove('menu-open')
+  menuState.file = null
+  menuState.anchor = null
+  menuState.itemEl = null
+}
+
+els.fileMenu.querySelectorAll('[data-action]').forEach(item => {
+  item.addEventListener('click', async () => {
+    const action = item.dataset.action
+    const file = menuState.file
+    closeFileMenu()
+    if (!file) return
+    if (action === 'rename') {
+      const fileEl = findFileEl(file.path)
+      if (fileEl) beginRenameFile(fileEl)
+    } else if (action === 'delete') {
+      await deleteFile(file.path)
+    }
+  })
+})
+
+document.addEventListener('click', (e) => {
+  if (!els.fileMenu.contains(e.target)) closeFileMenu()
+})
+
+// ---------------------------------------------------------------------------
+// Drawer responsive toggle
+// ---------------------------------------------------------------------------
+
+function updateDrawerToggle() {
+  if (window.innerWidth >= 768) {
+    els.drawer.classList.remove('is-collapsed')
+    els.drawerToggle.style.display = 'none'
+  } else {
+    els.drawer.classList.toggle('is-collapsed', !drawerOpen)
+    els.drawerToggle.style.display = ''
+    els.drawerToggle.querySelector('i').className = drawerOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down'
+  }
+}
+
+els.drawerHeader.addEventListener('click', (e) => {
+  if (window.innerWidth >= 768) return
+  if (e.target.closest('.memory-file-menu-btn')) return
+  drawerOpen = !drawerOpen
+  updateDrawerToggle()
+})
+
+els.drawerToggle.addEventListener('click', (e) => {
+  e.stopPropagation()
+  drawerOpen = !drawerOpen
+  updateDrawerToggle()
+})
+
+window.addEventListener('resize', () => {
+  drawerOpen = window.innerWidth >= 768 ? true : drawerOpen
+  updateDrawerToggle()
+})
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+function escapeHtml(s) {
+  const div = document.createElement('div')
+  div.textContent = s
+  return div.innerHTML
+}
+
+function findFileEl(path) {
+  return Array.from(els.fileList.querySelectorAll('.memory-file')).find(el => el.dataset.path === path)
+}
+
+function formatTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts
+  const now = new Date()
+  const isToday = d.toDateString() === now.toDateString()
+  if (isToday) {
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  }
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1)
+  if (d.toDateString() === yest.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+async function init() {
+  updateDrawerToggle()
+  els.editorLoading.style.display = 'none'
+  els.editorEmpty.style.display = ''
+
+  // Eagerly load Milkdown in the background so the first file open is snappy.
+  loadMilkdown().catch(() => { /* fallback will handle on open */ })
+
+  await loadFiles()
+
+  // If no file is open but files exist, open index.md or the first one.
+  if (!activePath && allFiles.length > 0) {
+    const indexFile = allFiles.find(f => f.path === 'index.md')
+    await openFile(indexFile ? indexFile.path : allFiles[0].path)
+  }
+
+  els.newPageBtn.addEventListener('click', createNewPage)
+
+  // Keyboard shortcut: Ctrl/Cmd+S just flushes save.
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault()
+      if (activePath) flushSave()
+    }
+  })
+
+}
+
+init().catch(err => {
+  console.error('Memory editor init failed:', err)
+  els.editorLoading.textContent = 'Failed to load editor. Refresh to try again.'
+})
+</script>
+
+</body>
+</html>

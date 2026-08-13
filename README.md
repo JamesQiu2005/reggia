@@ -38,7 +38,7 @@ Browser (two-pane UI)
                    (active items)    (long-term pages)
 ```
 
-- **Chat engine (default `agent`)** — an in-process DeepSeek tool-calling loop (`backend/agent_loop.py`). The backend calls DeepSeek's `/chat/completions` with function tools; tools run in-process against local SQLite, the Notion-backed long-term cache, and the 博查 (Bocha) web-search API; output streams to the frontend via SSE. No Docker, no Claude Code.
+- **Chat engine (default `agent`)** — an in-process DeepSeek ReAct loop (`backend/agent_loop.py`): Reason → Action/tool → Observation → next round or final answer. Thinking and final-answer tokens stream separately; tools run against local SQLite, the Notion-backed long-term cache, and the 博查 (Bocha) web-search API. No Docker or Claude Code required.
 - **Legacy engine (`CHAT_ENGINE=docker`)** — Claude Code inside a `reggia-cc` container connected to DeepSeek's Anthropic-compatible endpoint, with true filesystem isolation (Read `/workspace/**`, Bash `curl *host.docker.internal*`, no Write/Edit). Kept as an opt-in fallback.
 - **Auth** — `DEEPSEEK_API_KEY` for chat; `BOCHA_API_KEY` (optional) for web search, toggled per-message from the composer.
 - **Backend** is the single gateway for both SQLite items and Notion long-term pages.
@@ -54,7 +54,7 @@ Browser (two-pane UI)
 | `POST /sessions` | Create new session |
 | `GET /sessions/{id}` | Session metadata + full message history |
 | `DELETE /sessions/{id}` | Soft delete (archive) |
-| `POST /sessions/{id}/chat` | Send message (`{prompt, model, web_search}`); SSE stream from the chat engine (agent loop by default, or Docker CC) |
+| `POST /sessions/{id}/chat` | Send `{prompt, model, web_search, thinking, thinking_effort}`; `thinking_effort` is `low`, `high`, or `max`; returns an SSE ReAct stream |
 | `POST /sessions/{id}/title` | Manually rename session |
 | `GET /sessions/stats/cache` | Aggregate cache hit rate (last 7 days) |
 | `GET /chat/config` | Model list + default |
@@ -201,7 +201,7 @@ Reggia/
 
 ## Design decisions
 
-**Two interchangeable chat engines.** The default `agent` engine is an in-process DeepSeek tool-calling loop — lightweight, no container, easy to ship in a desktop build. The legacy `docker` engine runs Claude Code in a `reggia-cc` container for true filesystem isolation (the container boundary is the security boundary, not just permission config). `CHAT_ENGINE` selects between them; both stream to the frontend over the same SSE contract.
+**Two interchangeable chat engines.** The default `agent` engine is an in-process DeepSeek ReAct loop — lightweight, no container, easy to ship in a desktop build. It follows DeepSeek's thinking-mode contract by passing `reasoning_content` back with assistant tool-call messages. The legacy `docker` engine runs Claude Code in a `reggia-cc` container for true filesystem isolation. `CHAT_ENGINE` selects between them; both stream to the frontend over the same SSE contract.
 
 **DeepSeek direct, no Anthropic middleman.** The agent engine calls DeepSeek's OpenAI-compatible `/chat/completions` with function tools. The legacy engine sets `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` so Claude Code talks to DeepSeek natively. Either way auth is a single API key — no OAuth, no browser login, no keychain dependency.
 

@@ -8,10 +8,10 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, longterm_db, sessions as sessions_mod, settings as settings_mod, sync
+from . import config, db, longterm_db, memory_api, sessions as sessions_mod, settings as settings_mod, sync
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -50,6 +50,9 @@ app.add_middleware(
 # Session management routes
 app.include_router(sessions_mod.router)
 app.include_router(settings_mod.router)
+
+# Memory file API
+app.include_router(memory_api.router)
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +217,19 @@ async def get_log(session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Memory editor page
+# ---------------------------------------------------------------------------
+
+@app.get("/memory")
+async def memory_page():
+    page = BASE_DIR.parent / "frontend" / "memory.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="memory.html not found")
+    return FileResponse(page)
+
+
+# ---------------------------------------------------------------------------
 # Static files (must be last)
 # ---------------------------------------------------------------------------
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+app.mount("/", StaticFiles(directory=str(BASE_DIR.parent / "frontend"), html=True), name="frontend")

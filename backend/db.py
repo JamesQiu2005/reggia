@@ -54,6 +54,10 @@ def init_db():
             ON messages(session_id, created_at);
     """)
     conn.commit()
+    try:
+        conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.close()
 
     items_conn = get_items_conn()
@@ -133,13 +137,14 @@ def set_title(session_id: str, title: str) -> None:
 
 
 def append_message(session_id: str, role: str, content: str,
-                   cache_hit: int = None, cache_miss: int = None, output: int = None) -> int:
+                   cache_hit: int = None, cache_miss: int = None, output: int = None,
+                   tool_calls: str = None) -> int:
     conn = get_conn()
     now = int(time.time() * 1000)
     cur = conn.execute(
-        """INSERT INTO messages (session_id, role, content, created_at, cache_hit_tokens, cache_miss_tokens, output_tokens)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (session_id, role, content, now, cache_hit, cache_miss, output),
+        """INSERT INTO messages (session_id, role, content, created_at, cache_hit_tokens, cache_miss_tokens, output_tokens, tool_calls)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (session_id, role, content, now, cache_hit, cache_miss, output, tool_calls),
     )
     conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
     conn.commit()
@@ -151,11 +156,11 @@ def append_message(session_id: str, role: str, content: str,
 def load_history(session_id: str) -> list[dict]:
     conn = get_conn()
     rows = conn.execute(
-        "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC",
+        "SELECT role, content, tool_calls FROM messages WHERE session_id = ? ORDER BY created_at ASC",
         (session_id,),
     ).fetchall()
     conn.close()
-    return [{"role": r["role"], "content": r["content"]} for r in rows]
+    return [{"role": r["role"], "content": r["content"], "tool_calls": r["tool_calls"]} for r in rows]
 
 
 def search_sessions(query: str, limit: int = 20) -> list[dict]:

@@ -10,3 +10,5 @@ nohup.out
 .DS_Store
 *.egg-info/
 dist/
+vendor-build/
+.claude/settings.local.json

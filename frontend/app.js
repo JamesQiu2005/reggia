@@ -12,6 +12,8 @@ let allSessions = [];
 let isStreaming = false;
 let abortController = null;
 let webSearchEnabled = false;
+let thinkingEnabled = localStorage.getItem("reggia.thinkingEnabled") !== "0";
+let thinkingEffort = localStorage.getItem("reggia.thinkingEffort") || "high";
 
 // Search state
 let searchQuery = "";
@@ -34,6 +36,8 @@ const chatTitle = document.getElementById("chat-title-text");
 const btnStopChat = document.getElementById("btn-stop-chat");
 const btnSendChat = document.getElementById("btn-send-chat");
 const btnWebSearch = document.getElementById("btn-websearch-toggle");
+const btnThinking = document.getElementById("btn-thinking-toggle");
+const thinkingEffortSelect = document.getElementById("chat-thinking-effort");
 
 function autosizeInput() {
   chatInput.style.height = "auto";
@@ -87,6 +91,30 @@ if (btnWebSearch) {
   });
 }
 
+function syncThinkingControls() {
+  if (!btnThinking || !thinkingEffortSelect) return;
+  btnThinking.classList.toggle("is-active", thinkingEnabled);
+  btnThinking.setAttribute("aria-pressed", thinkingEnabled ? "true" : "false");
+  thinkingEffortSelect.disabled = !thinkingEnabled;
+  thinkingEffortSelect.value = thinkingEffort;
+  thinkingEffortSelect.title = currentModel === "deepseek-v4-pro"
+    ? "V4 Pro maps Short to Standard; Deep uses max effort"
+    : "Thinking effort: Short, Standard, or Deep";
+}
+
+if (btnThinking && thinkingEffortSelect) {
+  syncThinkingControls();
+  btnThinking.addEventListener("click", () => {
+    thinkingEnabled = !thinkingEnabled;
+    localStorage.setItem("reggia.thinkingEnabled", thinkingEnabled ? "1" : "0");
+    syncThinkingControls();
+  });
+  thinkingEffortSelect.addEventListener("change", () => {
+    thinkingEffort = thinkingEffortSelect.value;
+    localStorage.setItem("reggia.thinkingEffort", thinkingEffort);
+  });
+}
+
 async function sendMessage(prompt) {
   chatInput.value = "";
   autosizeInput();
@@ -100,7 +128,16 @@ async function sendMessage(prompt) {
 
   const assistantDiv = appendMessage("assistant", "");
   assistantDiv.innerHTML = thinkingHtml();
-  const state = { textBuf: "", readPages: [], denials: null, hasContent: false, receivedDelta: false };
+  const state = {
+    textBuf: "",
+    reasoningBuf: "",
+    reactPhase: "reason",
+    reactRound: 1,
+    readPages: [],
+    denials: null,
+    hasContent: false,
+    receivedDelta: false,
+  };
 
   if (!sessionId) {
     await createNewSession();
@@ -114,10 +151,21 @@ async function sendMessage(prompt) {
     const resp = await fetch(`/sessions/${sessionAtSend}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, model: currentModel, web_search: webSearchEnabled }),
+      body: JSON.stringify({
+        prompt,
+        model: currentModel,
+        web_search: webSearchEnabled,
+        thinking: thinkingEnabled,
+        thinking_effort: thinkingEffort,
+      }),
       signal: abortController.signal,
     });
     console.log("[SSE] fetch response status:", resp.status, "ok:", resp.ok);
+
+    if (!resp.ok) {
+      const detail = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${detail.slice(0, 300)}`);
+    }
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -189,11 +237,11 @@ async function sendMessage(prompt) {
   }
 }
 
-function thinkingHtml() {
-  return `<div class="msg-thinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>thinking…</span></div>`;
+function thinkingHtml(label = "thinking…") {
+  return `<div class="msg-thinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>${escapeHtml(label)}</span></div>`;
 }
 
-// state = { textBuf, readPages, denials, hasContent, receivedDelta } — mutated in place
+// Streaming state is mutated in place across ReAct phases.
 function handleStreamMessage(msg, container, state) {
   const dbg = (...args) => console.log("[SSE]", ...args);
   dbg(`type=${msg.type}`, msg.type === "assistant" ? `content_types=${(msg.message?.content||[]).map(b=>b.type).join(",")}` : "");
@@ -280,6 +328,20 @@ function handleStreamMessage(msg, container, state) {
       }
       break;
 
+    case "reasoning_delta":
+      if (msg.text) {
+        state.reasoningBuf += msg.text;
+        state.reactRound = msg.round || state.reactRound;
+        textChanged = true;
+      }
+      break;
+
+    case "react_step":
+      state.reactPhase = msg.phase || state.reactPhase;
+      state.reactRound = msg.round || state.reactRound;
+      textChanged = true;
+      break;
+
     case "tool_call": {
       // Surface a lightweight reading indicator, mirroring the CC tool_use path.
       const labels = {
@@ -328,6 +390,13 @@ function handleStreamMessage(msg, container, state) {
   }
 
   let html = "";
+  if (state.reasoningBuf) {
+    const reasoningOpen = state.textBuf ? "" : " open";
+    html += `<details class="msg-reasoning"${reasoningOpen}>`;
+    html += `<summary><i class="ti ti-brain"></i> Thinking · round ${state.reactRound}</summary>`;
+    html += `<div class="msg-reasoning-content">${renderMarkdown(state.reasoningBuf)}</div>`;
+    html += `</details>`;
+  }
   if (state.readPages.length > 0) {
     html += `<div class="msg-read-indicator"><i class="ti ti-tool"></i> reading ${state.readPages.join(", ")}</div>`;
   }
@@ -338,8 +407,13 @@ function handleStreamMessage(msg, container, state) {
     html += `<div>${renderMarkdown(state.textBuf)}</div>`;
     state.hasContent = true;
   } else if (!state.denials) {
-    // Still waiting for first text — keep the thinking indicator visible
-    html = thinkingHtml() + html;
+    const labels = {
+      reason: "thinking…",
+      action: "choosing a tool…",
+      observation: "reading the result…",
+      final: "writing…",
+    };
+    html += thinkingHtml(labels[state.reactPhase] || "thinking…");
   }
   dbg(`render: hasContent=${state.hasContent}, textLen=${state.textBuf.length}, htmlLen=${html.length}`);
   container.innerHTML = html;
@@ -1434,8 +1508,50 @@ async function removeAvatar() {
 }
 
 function wireSettingsHandlers() {
-  document.getElementById("sidebar-account").addEventListener("click", () => {
-    showSettingsView();
+  const accountBtn = document.getElementById("sidebar-account");
+  const accountSubmenu = document.getElementById("account-submenu");
+  const accountChevron = document.getElementById("account-chevron");
+
+  function openAccountSubmenu() {
+    accountSubmenu.style.display = "block";
+    accountChevron.classList.add("is-open");
+    accountBtn.classList.add("submenu-open");
+  }
+
+  function closeAccountSubmenu() {
+    accountSubmenu.style.display = "none";
+    accountChevron.classList.remove("is-open");
+    accountBtn.classList.remove("submenu-open");
+  }
+
+  accountBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (accountSubmenu.style.display === "block") {
+      closeAccountSubmenu();
+    } else {
+      openAccountSubmenu();
+    }
+  });
+
+  // Submenu items
+  accountSubmenu.querySelectorAll(".account-submenu-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const action = item.dataset.action;
+      closeAccountSubmenu();
+      if (action === "memory") {
+        window.location.href = "/memory";
+      } else if (action === "settings") {
+        showSettingsView();
+      }
+    });
+  });
+
+  // Close submenu on outside click
+  document.addEventListener("click", (e) => {
+    if (accountSubmenu.style.display === "none") return;
+    if (e.target.closest("#sidebar-account") || e.target.closest("#account-submenu")) return;
+    closeAccountSubmenu();
   });
 
   document.getElementById("btn-settings-back").addEventListener("click", () => {
@@ -1607,8 +1723,10 @@ async function init() {
         select.appendChild(opt);
       });
       currentModel = config.default_model;
+      syncThinkingControls();
       select.addEventListener("change", () => {
         currentModel = select.value;
+        syncThinkingControls();
       });
     }
   } catch (e) {
